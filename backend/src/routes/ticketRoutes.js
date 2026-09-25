@@ -1,15 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const {
-  crearTicket,
-  obtenerTickets,
-  resolverTicket,
-  obtenerHistorialLogs
-} = require('../controllers/ticketController');
+const ticketAdvancedController = require('../controllers/ticketAdvancedController');
+const upload = require('../middleware/upload');
 
-router.post('/crear', crearTicket);
-router.get('/listar', obtenerTickets);
-router.put('/resolver/:id', resolverTicket);
-router.get('/historial', obtenerHistorialLogs);
+// Rutas avanzadas
+router.get('/filtrar', ticketAdvancedController.obtenerTicketsAvanzado);
+router.put('/:ticket_id/reasignar', ticketAdvancedController.reasignarTicket);
+router.get('/reportes/exportar', ticketAdvancedController.exportarReportesCSV);
 
 module.exports = router;
