@@ -3,6 +3,14 @@ import React, { useState, useEffect } from 'react';
 const API_BASE_URL = 'https://friendly-capybara-q74gqxwxr46xfx9vg-4000.app.github.dev';
 
 export default function App() {
+  // Estado de autenticación para controlar si el usuario ha iniciado sesión
+  const [currentUser, setCurrentUser] = useState(null);
+  
+  // Estados para el formulario de Login
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+
+  // Estados del Sistema de Tickets
   const [tickets, setTickets] = useState([]);
   const [historial, setHistorial] = useState([]);
   const [form, setForm] = useState({
@@ -18,6 +26,7 @@ export default function App() {
   });
   const [resolucionTextos, setResolucionTextos] = useState({});
 
+  // Cargar datos del backend
   const cargarDatos = () => {
     fetch(`${API_BASE_URL}/api/tickets/listar`)
       .then(res => res.json())
@@ -31,8 +40,34 @@ export default function App() {
   };
 
   useEffect(() => { 
-    cargarDatos(); 
-  }, []);
+    if (currentUser) {
+      cargarDatos(); 
+    }
+  }, [currentUser]);
+
+  // Manejador del Login
+  const handleLoginSubmit = (e) => {
+    e.preventDefault();
+    setLoginError('');
+
+    // Validación rápida basada en las credenciales del sistema SGTI
+    if (
+      (loginForm.email === 'arnold@sgti.com' || loginForm.email === 'infra@sgti.com') && 
+      loginForm.password.trim() !== ''
+    ) {
+      setCurrentUser({
+        email: loginForm.email,
+        role: loginForm.email === 'arnold@sgti.com' ? 'Admin / Gerencia' : 'Infraestructura IT'
+      });
+    } else {
+      setLoginError('Credenciales incorrectas. Pruebe con arnold@sgti.com o infra@sgti.com');
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setLoginForm({ email: '', password: '' });
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -80,14 +115,80 @@ export default function App() {
     .catch(err => console.error("Error al resolver ticket:", err));
   };
 
+  // --- VISTA DE LOGIN SI NO HAY SESIÓN ACTIVA ---
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 font-sans">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-slate-200">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">SGTI</h1>
+            <p className="text-sm text-slate-500 mt-1">Sistema de Gestión de Tickets e Infraestructura IT</p>
+          </div>
+
+          {loginError && (
+            <div className="mb-4 p-3 text-xs bg-red-50 text-red-600 rounded-lg border border-red-200 text-center font-medium">
+              {loginError}
+            </div>
+          )}
+
+          <form onSubmit={handleLoginSubmit} className="space-y-5">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Correo Electrónico</label>
+              <input 
+                type="email"
+                placeholder="ej. arnold@sgti.com"
+                value={loginForm.email}
+                onChange={e => setLoginForm({...loginForm, email: e.target.value})}
+                required
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Contraseña</label>
+              <input 
+                type="password"
+                placeholder="••••••••"
+                value={loginForm.password}
+                onChange={e => setLoginForm({...loginForm, password: e.target.value})}
+                required
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-slate-50"
+              />
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 text-sm shadow-md"
+            >
+              Iniciar Sesión
+            </button>
+          </form>
+
+          <div className="mt-6 text-center text-xs text-slate-400">
+            Credenciales de prueba: <span className="font-semibold text-slate-600">arnold@sgti.com</span> o <span className="font-semibold text-slate-600">infra@sgti.com</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- VISTA DEL DASHBOARD COMPLETO (UNA VEZ LOGUEADO) ---
   return (
     <div className="min-h-screen bg-slate-100 py-8 px-4 font-sans text-slate-800">
       <div className="max-w-4xl mx-auto space-y-8">
         
-        {/* Cabecera */}
-        <header className="text-center">
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">SGTI</h1>
-          <p className="text-sm text-slate-500 mt-1">Sistema de Gestión de Tickets e Infraestructura IT</p>
+        {/* Cabecera con Control de Sesión */}
+        <header className="flex flex-col sm:flex-row justify-between items-center bg-white p-6 rounded-xl shadow-sm border border-slate-200 gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">SGTI Dashboard</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Conectado como: <strong className="text-blue-600">{currentUser.email}</strong> ({currentUser.role})</p>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-semibold px-4 py-2 rounded-lg transition duration-200"
+          >
+            Cerrar Sesión
+          </button>
         </header>
 
         {/* Formulario de Creación */}
