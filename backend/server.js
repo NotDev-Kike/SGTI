@@ -5,6 +5,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/authRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
 const adminRoutes = require('./routes/adminRoutes'); // Opcional si creaste rutas admin adicionales
+const { authenticate, requireAdmin } = require('./src/middleware/auth');
 
 const app = express();
 
@@ -14,7 +15,7 @@ app.use(express.json());
 // Endpoints oficiales conectados a Supabase
 app.use('/api/auth', authRoutes);
 app.use('/api/tickets', ticketRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/admin', authenticate, requireAdmin, adminRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

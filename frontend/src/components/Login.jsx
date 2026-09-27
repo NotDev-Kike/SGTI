@@ -2,47 +2,31 @@ import React, { useState } from 'react';
 
 export default function Login({ onLogin, apiBaseUrl }) {
   const [email, setEmail] = useState('');
+  const [nombre, setNombre] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
 
   const handleLogin = (e) => {
     e.preventDefault();
     setError('');
 
-    fetch(`${apiBaseUrl}/api/auth/login`, {
+    fetch(`${apiBaseUrl}/api/auth/${isRegistering ? 'registro' : 'login'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, nombre })
     })
     .then(res => res.json())
     .then(data => {
       if (data.success) {
         // data.user incluye { id, email, rol, departamento_id, nombre }
-        onLogin(data.user);
+        onLogin({ ...data.user, token: data.token });
       } else {
         setError(data.message || 'Credenciales incorrectas.');
       }
     })
     .catch(() => {
-      // Detección automática inteligente offline/fallback basada en el correo
-      let rol = 'usuario_final';
-      let area = 'Usuario';
-      let isAdmin = false;
-      let depId = null;
-
-      const cleanEmail = email.toLowerCase().trim();
-      if (cleanEmail.includes('arnold') || cleanEmail.includes('gerente')) {
-        rol = 'gerente_it'; area = 'Gerencia de IT'; isAdmin = true; depId = 4;
-      } else if (cleanEmail.includes('infra')) {
-        rol = 'admin_infra'; area = 'Infraestructura'; isAdmin = true; depId = 1;
-      } else if (cleanEmail.includes('erick') || cleanEmail.includes('gps')) {
-        rol = 'admin_gps'; area = 'GPS/rutas'; isAdmin = true; depId = 3;
-      } else if (cleanEmail.includes('luis') || cleanEmail.includes('desarrollo')) {
-        rol = 'admin_desarrollo'; area = 'Desarrollo'; isAdmin = true; depId = 2;
-      }
-
-      const userObj = { id: Date.now(), email: cleanEmail, rol, area, isAdmin, departamento_id: depId };
-      onLogin(userObj);
+      setError('No se pudo conectar con el servidor. Inténtelo de nuevo más tarde.');
     });
   };
 
@@ -61,6 +45,18 @@ export default function Login({ onLogin, apiBaseUrl }) {
         )}
 
         <form onSubmit={handleLogin} className="space-y-4">
+          {isRegistering && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1 uppercase tracking-wider">Nombre completo</label>
+              <input
+                type="text"
+                value={nombre}
+                onChange={e => setNombre(e.target.value)}
+                required
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1 uppercase tracking-wider">Correo Institucional / Personal</label>
             <input 
@@ -80,6 +76,7 @@ export default function Login({ onLogin, apiBaseUrl }) {
               placeholder="••••••••"
               value={password}
               onChange={e => setPassword(e.target.value)}
+              minLength={isRegistering ? 8 : undefined}
               required
               className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500"
             />
@@ -89,16 +86,24 @@ export default function Login({ onLogin, apiBaseUrl }) {
             type="submit"
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg text-sm shadow-md transition"
           >
-            Iniciar Sesión Unificada
+            {isRegistering ? 'Crear cuenta' : 'Iniciar Sesión Unificada'}
           </button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-400 space-y-1">
+        <button
+          type="button"
+          onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
+          className="mt-4 w-full text-sm font-semibold text-blue-700 hover:text-blue-900"
+        >
+          {isRegistering ? 'Ya tengo cuenta' : 'Crear una cuenta de usuario'}
+        </button>
+
+        {!isRegistering && <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-400 space-y-1">
           <p className="font-semibold text-slate-600">Accesos por correo:</p>
           <p>• Gerencia: arnold@sgti.com</p>
           <p>• Infraestructura: infra@sgti.com</p>
           <p>• GPS: erick@sgti.com | Desarrollo: luis@sgti.com</p>
-        </div>
+        </div>}
       </div>
     </div>
   );

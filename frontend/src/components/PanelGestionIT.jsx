@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../api';
 
 export default function PanelGestionIT({ tickets, historial, apiBaseUrl, onUpdate }) {
   const [resolucionTextos, setResolucionTextos] = useState({});
@@ -6,9 +7,8 @@ export default function PanelGestionIT({ tickets, historial, apiBaseUrl, onUpdat
   const resolverTicket = (id) => {
     const textoResolucion = resolucionTextos[id] || 'Incidencia resuelta satisfactoriamente';
     
-    fetch(`${apiBaseUrl}/api/tickets/resolver/${id}`, {
+    apiFetch(apiBaseUrl, `/api/tickets/${id}/resolver`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ detalles_resolucion: textoResolucion })
     })
     .then(res => res.json())

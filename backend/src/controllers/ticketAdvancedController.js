@@ -14,9 +14,12 @@ exports.listarTickets = async (req, res) => {
       JOIN usuarios u ON t.usuario_creador_id = u.id
       JOIN departamentos d ON t.departamento_destino_id = d.id
       LEFT JOIN usuarios u_asig ON t.asignado_a_id = u_asig.id
+      WHERE t.estado <> 'resuelto'
+        AND ($1::boolean OR t.usuario_creador_id = $2)
       ORDER BY t.created_at DESC;
     `;
-    const { rows } = await db.query(query);
+    const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+    const { rows } = await db.query(query, [adminRoles.includes(req.user.rol), req.user.id]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error(error);
@@ -26,16 +29,30 @@ exports.listarTickets = async (req, res) => {
 
 // 2. Crear un Ticket y registrar el evento en el historial
 exports.crearTicket = async (req, res) => {
-  const { titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, prioridad, fecha_limite } = req.body;
+  const { titulo, descripcion, departamento_destino_id, categoria, tipo_solicitud, prioridad, fecha_limite } = req.body;
+  const usuario_creador_id = req.user.id;
+
+  if (!titulo?.trim() || !descripcion?.trim() || !departamento_destino_id) {
+    return res.status(400).json({ success: false, message: 'Título, descripción y área destino son obligatorios.' });
+  }
   
   try {
+    const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+    if (!adminRoles.includes(req.user.rol)) {
+      const setting = await db.query("SELECT valor FROM configuraciones WHERE clave = 'modo_mantenimiento'");
+      if (setting.rows[0]?.valor === 'true') {
+        return res.status(503).json({ success: false, message: 'El sistema está en mantenimiento; la creación de tickets está temporalmente pausada.' });
+      }
+    }
+
     // Insertar el ticket
     const insertTicketQuery = `
-      INSERT INTO tickets (titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, prioridad, estado, fecha_limite)
-      VALUES ($1, $2, $3, $4, $5, $6, 'nuevo', $7)
+      INSERT INTO tickets (titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, tipo_solicitud, prioridad, estado, fecha_limite)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'nuevo', $8)
       RETURNING *;
     `;
-    const ticketValues = [titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, prioridad || 'media', fecha_limite];
+    const fechaLimite = fecha_limite || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    const ticketValues = [titulo.trim(), descripcion.trim(), usuario_creador_id, departamento_destino_id, categoria || 'hardware', tipo_solicitud || 'incidencia', prioridad || 'media', fechaLimite];
     const newTicketResult = await db.query(insertTicketQuery, ticketValues);
     const ticketCreado = newTicketResult.rows[0];
 
@@ -57,10 +74,70 @@ exports.crearTicket = async (req, res) => {
   }
 };
 
+exports.listarHistorial = async (req, res) => {
+  try {
+    const query = `
+            SELECT t.*, u.nombre AS creador_nombre, u.email AS creador_email,
+              d.nombre AS departamento_destino_nombre,
+              (SELECT h.accion FROM ticket_historial h
+          WHERE h.ticket_id = t.id AND h.accion LIKE 'Resolución: %'
+          ORDER BY h.created_at DESC LIMIT 1) AS detalles_resolucion
+      FROM tickets t
+      JOIN usuarios u ON t.usuario_creador_id = u.id
+      JOIN departamentos d ON t.departamento_destino_id = d.id
+      WHERE t.estado = 'resuelto'
+      ORDER BY t.fecha_resolucion DESC NULLS LAST;
+    `;
+    const { rows } = await db.query(query);
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al cargar el historial', error: error.message });
+  }
+};
+
+exports.listarResueltosUsuario = async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT t.id, t.titulo, t.fecha_resolucion,
+             EXISTS (SELECT 1 FROM encuestas_satisfaccion e WHERE e.ticket_id = t.id) AS encuesta_enviada
+      FROM tickets t
+      WHERE t.usuario_creador_id = $1 AND t.estado = 'resuelto'
+      ORDER BY t.fecha_resolucion DESC NULLS LAST;
+    `, [req.user.id]);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.enviarEncuesta = async (req, res) => {
+  const calificacion = Number(req.body.calificacion);
+  const comentario = typeof req.body.comentario === 'string' ? req.body.comentario.trim() : '';
+  if (!Number.isInteger(calificacion) || calificacion < 1 || calificacion > 5) {
+    return res.status(400).json({ success: false, message: 'La calificación debe estar entre 1 y 5.' });
+  }
+  try {
+    const result = await db.query(`
+      INSERT INTO encuestas_satisfaccion (ticket_id, calificacion, comentario)
+      SELECT t.id, $3, $4 FROM tickets t
+      WHERE t.id = $1 AND t.usuario_creador_id = $2 AND t.estado = 'resuelto'
+        AND NOT EXISTS (SELECT 1 FROM encuestas_satisfaccion e WHERE e.ticket_id = t.id)
+      RETURNING *;
+    `, [req.params.id, req.user.id, calificacion, comentario || null]);
+    if (!result.rowCount) {
+      return res.status(404).json({ success: false, message: 'Ticket no encontrado, no está resuelto o ya fue calificado.' });
+    }
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // 3. Asignar Ticket a un Técnico (por Gerente IT o Admin)
 exports.asignarTicket = async (req, res) => {
   const { id } = req.params; // ID del ticket
-  const { asignado_a_id, usuario_operador_id } = req.body; // Quién recibe y quién realiza la acción
+  const { asignado_a_id } = req.body;
 
   try {
     const updateQuery = `
@@ -78,7 +155,7 @@ exports.asignarTicket = async (req, res) => {
     // Registrar en el historial
     await db.query(
       `INSERT INTO ticket_historial (ticket_id, usuario_id, accion) VALUES ($1, $2, $3)`,
-      [id, usuario_operador_id, `Asignó el ticket al técnico ID: ${asignado_a_id}`]
+      [id, req.user.id, `Asignó el ticket al técnico ID: ${asignado_a_id}`]
     );
 
     res.status(200).json({ success: true, message: 'Ticket asignado correctamente', data: rows[0] });
@@ -91,7 +168,8 @@ exports.asignarTicket = async (req, res) => {
 // 4. Resolver Ticket
 exports.resolverTicket = async (req, res) => {
   const { id } = req.params;
-  const { usuario_id } = req.body;
+  const { detalles_resolucion } = req.body;
+  const usuario_id = req.user.id;
 
   try {
     const updateQuery = `
@@ -109,7 +187,7 @@ exports.resolverTicket = async (req, res) => {
     // Registrar en historial
     await db.query(
       `INSERT INTO ticket_historial (ticket_id, usuario_id, accion) VALUES ($1, $2, $3)`,
-      [id, usuario_id, 'Marcó el ticket como resuelto']
+      [id, usuario_id, `Resolución: ${detalles_resolucion || 'Resuelto por personal autorizado'}`]
     );
 
     res.status(200).json({ success: true, message: 'Ticket resuelto correctamente', data: rows[0] });
@@ -122,15 +200,22 @@ exports.resolverTicket = async (req, res) => {
 // 5. Enviar mensaje de chat interno en el ticket
 exports.enviarMensaje = async (req, res) => {
   const { id } = req.params; // ticket_id
-  const { remitente_id, mensaje } = req.body;
+  const { mensaje } = req.body;
 
   try {
+    const ticket = await db.query('SELECT usuario_creador_id FROM tickets WHERE id = $1', [id]);
+    const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+    if (!ticket.rowCount) return res.status(404).json({ success: false, message: 'Ticket no encontrado.' });
+    if (!adminRoles.includes(req.user.rol) && Number(ticket.rows[0].usuario_creador_id) !== Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'No tiene acceso a esta conversación.' });
+    }
+    if (!mensaje?.trim()) return res.status(400).json({ success: false, message: 'El mensaje no puede estar vacío.' });
     const query = `
       INSERT INTO mensajes_ticket (ticket_id, remitente_id, mensaje)
       VALUES ($1, $2, $3)
       RETURNING *;
     `;
-    const { rows } = await db.query(query, [id, remitente_id, mensaje]);
+    const { rows } = await db.query(query, [id, req.user.id, mensaje.trim()]);
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {
     console.error(error);

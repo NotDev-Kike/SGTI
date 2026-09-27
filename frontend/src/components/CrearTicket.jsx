@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../api';
 
 export default function CrearTicket({ currentUser, apiBaseUrl, onTicketCreated, setActiveTab }) {
   const [formTicketBasico, setFormTicketBasico] = useState({
@@ -13,13 +14,16 @@ export default function CrearTicket({ currentUser, apiBaseUrl, onTicketCreated, 
   const handleSubmitTicketBasico = (e) => {
     e.preventDefault();
     const payload = {
-      ...formTicketBasico,
-      nombre_solicitante: currentUser.email,
-      departamento: currentUser.area || 'General',
-      prioridad: 'media'
+      titulo: formTicketBasico.titulo,
+      descripcion: formTicketBasico.descripcion,
+      tipo_solicitud: formTicketBasico.tipo_peticion,
+      categoria: formTicketBasico.categoria,
+      departamento_destino_id: { 'infra@sgti.com': 1, 'luis@sgti.com': 2, 'erick@sgti.com': 3, 'arnold@sgti.com': 4 }[formTicketBasico.adminDestino] || 1,
+      prioridad: 'media',
+      fecha_limite: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
     };
 
-    fetch(`${apiBaseUrl}/api/tickets/crear`, {
+    apiFetch(apiBaseUrl, '/api/tickets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -37,9 +41,7 @@ export default function CrearTicket({ currentUser, apiBaseUrl, onTicketCreated, 
     })
     .catch(err => {
       console.error("Error:", err);
-      alert('Ticket guardado de forma local (Offline mode)');
-      onTicketCreated();
-      setActiveTab('mis_tickets');
+      alert('No se pudo conectar con el servidor. El ticket no se guardó.');
     });
   };
 
@@ -56,8 +58,8 @@ export default function CrearTicket({ currentUser, apiBaseUrl, onTicketCreated, 
           >
             <option value="incidencia">Incidencia</option>
             <option value="problema">Problema</option>
-            <option value="peticion de servicio">Petición de Servicio</option>
-            <option value="peticion de cambio">Petición de Cambio</option>
+            <option value="peticion_servicio">Petición de Servicio</option>
+            <option value="peticion_cambio">Petición de Cambio</option>
           </select>
         </div>
 

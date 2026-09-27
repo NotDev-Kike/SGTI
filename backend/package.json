@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
+    "bootstrap:admins": "node scripts/bootstrap-admins.js",
     "postinstall": "prisma skills sync || exit 0"
   },
   "dependencies": {
