@@ -1,93 +1,66 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
-export default function PanelGestionIT({ usuarioActual }) {
-  const [tickets, setTickets] = useState([]);
-  const [busqueda, setBusqueda] = useState('');
+export default function PanelGestionIT({ tickets, historial, apiBaseUrl, onUpdate }) {
+  const [resolucionTextos, setResolucionTextos] = useState({});
 
-  useEffect(() => {
-    fetchTickets();
-  }, []);
-
-  const fetchTickets = async () => {
-    try {
-      const res = await fetch(`http://localhost:5000/api/tickets/filtrar?rol=${usuarioActual.rol}&usuario_id=${usuarioActual.id}&departamento_id=${usuarioActual.departamento_id}`);
-      const data = await res.json();
-      setTickets(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Función visual del semáforo por tiempo
-  const obtenerColorSemaforo = (fechaLimite, estado) => {
-    if (estado === 'resuelto') return 'bg-gray-200 text-gray-700';
-    const diff = new Date(fechaLimite) - new Date();
-    const horasRestantes = diff / (1000 * 60 * 60);
-
-    if (horasRestantes < 0) return 'bg-red-500 text-white animate-pulse'; // Crítico / Vencido
-    if (horasRestantes <= 4) return 'bg-yellow-400 text-black'; // Precaución
-    return 'bg-green-500 text-white'; // A tiempo
-  };
-
-  const exportarCSV = () => {
-    window.open('http://localhost:5000/api/tickets/reportes/exportar', '_blank');
+  const resolverTicket = (id) => {
+    const textoResolucion = resolucionTextos[id] || 'Incidencia resuelta satisfactoriamente';
+    
+    fetch(`${apiBaseUrl}/api/tickets/resolver/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ detalles_resolucion: textoResolucion })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        alert('Ticket resuelto y movido al historial');
+        onUpdate();
+      }
+    })
+    .catch(err => {
+      console.error("Error al resolver:", err);
+      onUpdate();
+    });
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">Panel de Control IT</h1>
-        <button 
-          onClick={exportarCSV}
-          className="bg-emerald-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-emerald-700 transition"
-        >
-          Exportar Reportes (CSV)
-        </button>
-      </div>
-
-      {/* Barra de búsqueda rápida */}
-      <div className="mb-4">
-        <input 
-          type="text"
-          placeholder="Buscar por título, categoría o usuario..."
-          className="w-full p-2 border border-gray-300 rounded-md shadow-sm"
-          onChange={(e) => setBusqueda(e.target.value)}
-        />
-      </div>
-
-      {/* Tabla de Tickets con Semáforo */}
-      <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-100 border-b text-slate-700 text-sm">
-              <th className="p-3">ID</th>
-              <th className="p-3">Título</th>
-              <th className="p-3">Creador</th>
-              <th className="p-3">Categoría</th>
-              <th className="p-3">Estado / Semáforo</th>
-              <th className="p-3">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tickets.filter(t => t.titulo.toLowerCase().includes(busqueda.toLowerCase())).map((ticket) => (
-              <tr key={ticket.id} className="border-b hover:bg-slate-50 text-sm">
-                <p className="p-3 font-semibold">#{ticket.id}</p>
-                <td className="p-3">{ticket.titulo}</td>
-                <td className="p-3">{ticket.creador_nombre}</td>
-                <td className="p-3">{ticket.categoria}</td>
-                <td className="p-3">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${obtenerColorSemaforo(ticket.fecha_limite, ticket.estado)}`}>
-                    {ticket.estado.toUpperCase()}
-                  </span>
-                </td>
-                <td className="p-3">
-                  <button className="text-blue-600 hover:underline font-medium">Ver / Gestionar</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold text-slate-900">Panel de Gestión IT (Todos los Tickets)</h2>
+      {tickets.length === 0 ? (
+        <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center text-sm">No hay tickets activos.</p>
+      ) : (
+        <div className="space-y-4">
+          {tickets.map(t => (
+            <div key={t.id} className="bg-white border rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-slate-900">{t.titulo}</h3>
+                <span className="text-xs px-3 py-1 rounded-full font-bold uppercase bg-amber-100 text-amber-800">
+                  {t.prioridad || 'media'}
+                </span>
+              </div>
+              <p className="text-slate-600 text-sm">{t.descripcion}</p>
+              <div className="text-xs text-slate-500">Solicitante: <strong>{t.nombre_solicitante}</strong></div>
+              
+              <div className="flex gap-2 pt-2 border-t">
+                <input 
+                  type="text"
+                  placeholder="Notas de resolución..." 
+                  value={resolucionTextos[t.id] || ''}
+                  onChange={e => setResolucionTextos({...resolucionTextos, [t.id]: e.target.value})} 
+                  className="flex-1 px-3 py-2 border rounded-lg text-sm" 
+                />
+                <button 
+                  onClick={() => resolverTicket(t.id)} 
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-semibold text-sm shadow-sm"
+                >
+                  Resolver
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

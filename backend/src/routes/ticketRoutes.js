@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const ticketAdvancedController = require('../controllers/ticketAdvancedController');
-const upload = require('../middleware/upload');
+const ticketController = require('../controllers/ticketAdvancedController');
 
-// Rutas avanzadas
-router.get('/filtrar', ticketAdvancedController.obtenerTicketsAvanzado);
-router.put('/:ticket_id/reasignar', ticketAdvancedController.reasignarTicket);
-router.get('/reportes/exportar', ticketAdvancedController.exportarReportesCSV);
+// Definición de Endpoints
+router.get('/', ticketController.listarTickets);
+router.post('/', ticketController.crearTicket);
+router.put('/:id/asignar', ticketController.asignarTicket);
+router.put('/:id/resolver', ticketController.resolverTicket);
+router.post('/:id/mensajes', ticketController.enviarMensaje);
 
 module.exports = router;

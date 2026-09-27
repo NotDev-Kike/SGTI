@@ -1,103 +1,139 @@
-const pool = require('../config/db');
+const db = require('../config/db');
 
-// 1. Obtener Tickets con Filtro estricto por Rol (RBAC) y Búsqueda
-exports.obtenerTicketsAvanzado = async (req, res) => {
-  try {
-    const { usuario_id, rol, departamento_id, search, estado } = req.query;
-    
-    let query = `
-      SELECT t.*, u.nombre as creador_nombre, d.nombre as departamento_nombre, tec.nombre as tecnico_nombre
-      FROM tickets t
-      JOIN usuarios u ON t.usuario_creador_id = u.id
-      JOIN departamentos d ON t.departamento_destino_id = d.id
-      LEFT JOIN usuarios tec ON t.asignado_a_id = tec.id
-      WHERE 1=1
-    `;
-    let values = [];
-    let paramIndex = 1;
-
-    // Control de acceso por rol
-    if (rol === 'usuario_final') {
-      query += ` AND t.usuario_creador_id = $${paramIndex++}`;
-      values.push(usuario_id);
-    } else if (rol === 'tecnico') {
-      // Los técnicos solo ven los tickets de su departamento o los asignados a ellos
-      query += ` AND (t.departamento_destino_id = $${paramIndex++} OR t.asignado_a_id = $${paramIndex++})`;
-      values.push(departamento_id, usuario_id);
-    }
-    // 'gerente_it' y 'admin_infra' ven todo sin restricciones
-
-    // Filtros opcionales de búsqueda y estado
-    if (estado) {
-      query += ` AND t.estado = $${paramIndex++}`;
-      values.push(estado);
-    }
-
-    if (search) {
-      query += ` AND (t.titulo ILIKE $${paramIndex} OR t.categoria ILIKE $${paramIndex} OR u.nombre ILIKE $${paramIndex})`;
-      values.push(`%${search}%`);
-      paramIndex++;
-    }
-
-    query += ` ORDER BY t.created_at DESC`;
-    const result = await pool.query(query, values);
-    res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error al filtrar los tickets' });
-  }
-};
-
-// 2. Reasignar Ticket a otro Departamento o Técnico
-exports.reasignarTicket = async (req, res) => {
-  try {
-    const { ticket_id } = req.params;
-    const { nuevo_departamento_id, nuevo_asignado_id, usuario_accion_id } = req.body;
-
-    const queryUpdate = `
-      UPDATE tickets 
-      SET departamento_destino_id = COALESCE($1, departamento_destino_id),
-          asignado_a_id = $2,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3
-      RETURNING *;
-    `;
-    const updated = await pool.query(queryUpdate, [nuevo_departamento_id, nuevo_asignado_id, ticket_id]);
-
-    // Registrar en el historial
-    await pool.query(
-      `INSERT INTO ticket_historial (ticket_id, usuario_id, accion) VALUES ($1, $2, $3)`,
-      [ticket_id, usuario_accion_id, `Ticket reasignado a nuevo departamento/técnico`]
-    );
-
-    res.json({ message: 'Ticket reasignado con éxito', ticket: updated.rows[0] });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error al reasignar el ticket' });
-  }
-};
-
-// 3. Exportar Reportes en formato CSV
-exports.exportarReportesCSV = async (req, res) => {
+// 1. Listar todos los tickets con información relacional (Nombres de creador y departamento)
+exports.listarTickets = async (req, res) => {
   try {
     const query = `
-      SELECT t.id, t.titulo, t.categoria, t.prioridad, t.estado, t.created_at, u.nombre as creador, d.nombre as departamento
+      SELECT 
+        t.*, 
+        u.nombre AS creador_nombre, 
+        u.email AS creador_email,
+        d.nombre AS departamento_destino_nombre,
+        u_asig.nombre AS asignado_nombre
       FROM tickets t
       JOIN usuarios u ON t.usuario_creador_id = u.id
       JOIN departamentos d ON t.departamento_destino_id = d.id
+      LEFT JOIN usuarios u_asig ON t.asignado_a_id = u_asig.id
+      ORDER BY t.created_at DESC;
     `;
-    const result = await pool.query(query);
-
-    let csv = 'ID,Titulo,Categoria,Prioridad,Estado,FechaCreacion,Creador,Departamento\n';
-    result.rows.forEach(row => {
-      csv += `${row.id},"${row.titulo}",${row.categoria},${row.prioridad},${row.estado},${row.created_at},"${row.creador}",${row.departamento}\n`;
-    });
-
-    res.header('Content-Type', 'text/csv');
-    res.attachment('reporte_tickets_sgti.csv');
-    res.send(csv);
+    const { rows } = await db.query(query);
+    res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Error al generar el reporte' });
+    res.status(500).json({ success: false, message: 'Error al listar los tickets', error: error.message });
+  }
+};
+
+// 2. Crear un Ticket y registrar el evento en el historial
+exports.crearTicket = async (req, res) => {
+  const { titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, prioridad, fecha_limite } = req.body;
+  
+  try {
+    // Insertar el ticket
+    const insertTicketQuery = `
+      INSERT INTO tickets (titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, prioridad, estado, fecha_limite)
+      VALUES ($1, $2, $3, $4, $5, $6, 'nuevo', $7)
+      RETURNING *;
+    `;
+    const ticketValues = [titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, prioridad || 'media', fecha_limite];
+    const newTicketResult = await db.query(insertTicketQuery, ticketValues);
+    const ticketCreado = newTicketResult.rows[0];
+
+    // Registrar en la tabla de historial (auditoría)
+    const insertHistorialQuery = `
+      INSERT INTO ticket_historial (ticket_id, usuario_id, accion)
+      VALUES ($1, $2, $3);
+    `;
+    await db.query(insertHistorialQuery, [ticketCreado.id, usuario_creador_id, 'Creación del ticket']);
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Ticket creado exitosamente', 
+      data: ticketCreado 
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al crear el ticket', error: error.message });
+  }
+};
+
+// 3. Asignar Ticket a un Técnico (por Gerente IT o Admin)
+exports.asignarTicket = async (req, res) => {
+  const { id } = req.params; // ID del ticket
+  const { asignado_a_id, usuario_operador_id } = req.body; // Quién recibe y quién realiza la acción
+
+  try {
+    const updateQuery = `
+      UPDATE tickets 
+      SET asignado_a_id = $1, estado = 'en_proceso', updated_at = CURRENT_TIMESTAMP 
+      WHERE id = $2 
+      RETURNING *;
+    `;
+    const { rows } = await db.query(updateQuery, [asignado_a_id, id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Ticket no encontrado' });
+    }
+
+    // Registrar en el historial
+    await db.query(
+      `INSERT INTO ticket_historial (ticket_id, usuario_id, accion) VALUES ($1, $2, $3)`,
+      [id, usuario_operador_id, `Asignó el ticket al técnico ID: ${asignado_a_id}`]
+    );
+
+    res.status(200).json({ success: true, message: 'Ticket asignado correctamente', data: rows[0] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al asignar el ticket', error: error.message });
+  }
+};
+
+// 4. Resolver Ticket
+exports.resolverTicket = async (req, res) => {
+  const { id } = req.params;
+  const { usuario_id } = req.body;
+
+  try {
+    const updateQuery = `
+      UPDATE tickets 
+      SET estado = 'resuelto', fecha_resolucion = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = $1 
+      RETURNING *;
+    `;
+    const { rows } = await db.query(updateQuery, [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Ticket no encontrado' });
+    }
+
+    // Registrar en historial
+    await db.query(
+      `INSERT INTO ticket_historial (ticket_id, usuario_id, accion) VALUES ($1, $2, $3)`,
+      [id, usuario_id, 'Marcó el ticket como resuelto']
+    );
+
+    res.status(200).json({ success: true, message: 'Ticket resuelto correctamente', data: rows[0] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al resolver el ticket', error: error.message });
+  }
+};
+
+// 5. Enviar mensaje de chat interno en el ticket
+exports.enviarMensaje = async (req, res) => {
+  const { id } = req.params; // ticket_id
+  const { remitente_id, mensaje } = req.body;
+
+  try {
+    const query = `
+      INSERT INTO mensajes_ticket (ticket_id, remitente_id, mensaje)
+      VALUES ($1, $2, $3)
+      RETURNING *;
+    `;
+    const { rows } = await db.query(query, [id, remitente_id, mensaje]);
+    res.status(201).json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al enviar mensaje', error: error.message });
   }
 };

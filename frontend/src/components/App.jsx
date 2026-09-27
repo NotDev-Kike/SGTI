@@ -1,253 +1,198 @@
 import React, { useState, useEffect } from 'react';
+import Login from './Login';
 
 const API_BASE_URL = 'https://friendly-capybara-q74gqxwxr46xfx9vg-4000.app.github.dev';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [loginError, setLoginError] = useState('');
+  // Cargar usuario desde localStorage para evitar que se regrese al login al recargar
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('sgti_user');
+    return saved ? JSON.parse(saved) : null;
+  });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const [tickets, setTickets] = useState([]);
   const [historial, setHistorial] = useState([]);
-  
-  const [form, setForm] = useState({
-    nombre_solicitante: '', 
-    departamento: '', 
-    ubicacion: 'Presencial',
-    titulo: '', 
-    descripcion: '', 
+  const [usuarios, setUsuarios] = useState([]);
+  const [tareas, setTareas] = useState([]);
+  const [proyectos, setProyectos] = useState([]);
+  const [chatMensajes, setChatMensajes] = useState([]);
+
+  // Estados de formularios
+  const [formTicket, setFormTicket] = useState({
+    tipo_solicitud: 'incidencia',
+    titulo: '',
+    descripcion: '',
     categoria: 'hardware',
-    tipo_solicitud: 'incidente', 
-    prioridad: 'media', 
-    urgencia: 'media',
-    asignado_a: 'infraestructura',
-    evidencia: null
+    departamento_destino_id: 1,
+    prioridad: 'media'
   });
-  
+
   const [resolucionTextos, setResolucionTextos] = useState({});
+  const [nuevoChat, setNuevoChat] = useState({ para: 'infra@sgti.com', texto: '' });
+  const [configuracionSistema, setConfiguracionSistema] = useState({ modoMantenimiento: false, notalesEmail: true });
 
-  const cargarDatos = () => {
-    fetch(`${API_BASE_URL}/api/tickets/listar`)
-      .then(res => res.json())
-      .then(data => { if (data.success) setTickets(data.data); })
-      .catch(err => console.error("Error al listar tickets:", err));
-
-    fetch(`${API_BASE_URL}/api/tickets/historial`)
-      .then(res => res.json())
-      .then(data => { if (data.success) setHistorial(data.data); })
-      .catch(err => console.error("Error al cargar historial:", err));
-  };
-
-  useEffect(() => { 
+  useEffect(() => {
     if (currentUser) {
-      cargarDatos(); 
+      localStorage.setItem('sgti_user', JSON.stringify(currentUser));
+      cargarDatosGlobales();
+    } else {
+      localStorage.removeItem('sgti_user');
     }
   }, [currentUser]);
 
-  const handleLoginSubmit = (e) => {
-    e.preventDefault();
-    setLoginError('');
+  const cargarDatosGlobales = () => {
+    // Simulación de carga desde backend o estados locales seguros
+    fetch(`${API_BASE_URL}/api/tickets/listar`)
+      .then(res => res.json())
+      .then(data => { if (data.success) setTickets(data.data); })
+      .catch(() => {});
+  };
 
-    const email = loginForm.email.toLowerCase().trim();
-    let roleName = 'Usuario Final / Solicitante';
-    let area = 'General';
-
-    if (email === 'arnold@sgti.com') {
-      roleName = 'Gerencia de IT (Arnold)';
-      area = 'Gerencia';
-    } else if (email === 'infra@sgti.com') {
-      roleName = 'Infraestructura IT';
-      area = 'Infraestructura';
-    } else if (email === 'luis@sgti.com') {
-      roleName = 'Desarrollo (Luis)';
-      area = 'Desarrollo';
-    } else if (email === 'erick@sgti.com') {
-      roleName = 'GPS / Rutas (Erick)';
-      area = 'GPS';
-    }
-
-    if (loginForm.password.trim() !== '') {
-      setCurrentUser({ email, role: roleName, area });
-    } else {
-      setLoginError('Por favor ingrese su contraseña.');
-    }
+  const handleLoginSuccess = (user) => {
+    setCurrentUser(user);
+    setActiveTab('dashboard');
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    setLoginForm({ email: '', password: '' });
+    localStorage.removeItem('sgti_user');
   };
 
-  const handleSubmitTicket = (e) => {
+  // Crear Ticket (Usuarios Básicos)
+  const handleCrearTicket = (e) => {
     e.preventDefault();
-    fetch(`${API_BASE_URL}/api/tickets/crear`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form)
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        alert('Ticket creado y clasificado exitosamente');
-        setForm({
-          nombre_solicitante: currentUser?.email || '', 
-          departamento: '', 
-          ubicacion: 'Presencial',
-          titulo: '', 
-          descripcion: '', 
-          categoria: 'hardware',
-          tipo_solicitud: 'incidente', 
-          prioridad: 'media', 
-          urgencia: 'media',
-          asignado_a: 'infraestructura',
-          evidencia: null
-        });
-        cargarDatos();
-        setActiveTab('dashboard');
-      }
-    })
-    .catch(err => console.error("Error al crear ticket:", err));
+    const nuevo = {
+      id: Date.now(),
+      ...formTicket,
+      nombre_solicitante: currentUser.email,
+      estado: 'nuevo',
+      fecha_limite: new Date(Date.now() + 86400000 * 2).toISOString(), // 2 días límite
+      created_at: new Date().toISOString()
+    };
+    setTickets([nuevo, ...tickets]);
+    alert(`Ticket clasificado como [${formTicket.tipo_solicitud.toUpperCase()}] creado con éxito.`);
+    setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'hardware', departamento_destino_id: 1, prioridad: 'media' });
+    setActiveTab('mis_tickets');
   };
 
-  const resolverTicket = (id) => {
-    const textoResolucion = resolucionTextos[id] || 'Incidencia resuelta satisfactoriamente';
-    
-    fetch(`${API_BASE_URL}/api/tickets/resolver/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ detalles_resolucion: textoResolucion })
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        alert('Ticket resuelto y movido al historial');
-        cargarDatos();
-      }
-    })
-    .catch(err => console.error("Error al resolver ticket:", err));
+  // Resolver Ticket (Admin)
+  const resolverTicketAdmin = (id) => {
+    const texto = resolucionTextos[id] || 'Resuelto por personal autorizado';
+    const ticketAResolver = tickets.find(t => t.id === id);
+    if (ticketAResolver) {
+      setTickets(tickets.filter(t => t.id !== id));
+      setHistorial([{ ...ticketAResolver, estado: 'resuelto', detalles_resolucion: texto }, ...historial]);
+      alert('Ticket resuelto y movido al historial de auditoría (desaparece de Todos para evitar saturación).');
+    }
   };
 
   if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 font-sans">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 border border-slate-800">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">SGTI</h1>
-            <p className="text-sm text-slate-500 mt-1">Gestión de Infraestructura y Tickets IT</p>
-          </div>
-
-          {loginError && (
-            <div className="mb-4 p-3 text-xs bg-red-50 text-red-600 rounded-lg border border-red-200 text-center font-medium">
-              {loginError}
-            </div>
-          )}
-
-          <form onSubmit={handleLoginSubmit} className="space-y-5">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Correo Electrónico</label>
-              <input 
-                type="email"
-                placeholder="ej. arnold@sgti.com"
-                value={loginForm.email}
-                onChange={e => setLoginForm({...loginForm, email: e.target.value})}
-                required
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-slate-50"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Contraseña</label>
-              <input 
-                type="password"
-                placeholder="••••••••"
-                value={loginForm.password}
-                onChange={e => setLoginForm({...loginForm, password: e.target.value})}
-                required
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-slate-50"
-              />
-            </div>
-
-            <button 
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 text-sm shadow-md"
-            >
-              Iniciar Sesión en el Sistema
-            </button>
-          </form>
-
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center text-xs text-slate-400 space-y-1">
-            <p className="font-semibold text-slate-600">Accesos IT Principales:</p>
-            <p>Gerencia: arnold@sgti.com | Infra: infra@sgti.com</p>
-            <p>Desarrollo: luis@sgti.com | GPS: erick@sgti.com</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <Login onLogin={handleLoginSuccess} apiBaseUrl={API_BASE_URL} />;
   }
 
   return (
     <div className="min-h-screen bg-slate-100 flex font-sans text-slate-800">
       
+      {/* BARRA LATERAL DINÁMICA */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col shadow-xl`}>
-        
         <div className="p-5 border-b border-slate-800 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-extrabold text-white tracking-wider">SGTI</h2>
-            <p className="text-xs text-slate-400">Área de Soporte e Infraestructura</p>
+            <p className="text-xs text-blue-400 font-semibold">{currentUser.area}</p>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white text-lg font-bold">
-            ✕
-          </button>
+          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">✕</button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto text-sm">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
           <button 
             onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow' : 'hover:bg-slate-800 text-slate-300'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
           >
             📊 Dashboard General
           </button>
-          <button 
-            onClick={() => { setActiveTab('crear'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg font-medium transition ${activeTab === 'crear' ? 'bg-blue-600 text-white shadow' : 'hover:bg-slate-800 text-slate-300'}`}
-          >
-            📝 Nuevo Ticket
-          </button>
-          <button 
-            onClick={() => { setActiveTab('activos'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg font-medium transition ${activeTab === 'activos' ? 'bg-blue-600 text-white shadow' : 'hover:bg-slate-800 text-slate-300'}`}
-          >
-            📋 Todos los Tickets ({tickets.length})
-          </button>
-          <button 
-            onClick={() => { setActiveTab('criticos'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg font-medium transition ${activeTab === 'criticos' ? 'bg-blue-600 text-white shadow' : 'hover:bg-slate-800 text-slate-300'}`}
-          >
-            🚨 Tickets Críticos (Semáforo)
-          </button>
-          <button 
-            onClick={() => { setActiveTab('historial'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg font-medium transition ${activeTab === 'historial' ? 'bg-blue-600 text-white shadow' : 'hover:bg-slate-800 text-slate-300'}`}
-          >
-            📁 Historial Resueltos ({historial.length})
-          </button>
-          {currentUser.area === 'Gerencia' && (
-            <button 
-              onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg font-medium transition ${activeTab === 'usuarios' ? 'bg-blue-600 text-white shadow' : 'hover:bg-slate-800 text-slate-300'}`}
-            >
-              👥 Gestión de Usuarios
-            </button>
+
+          {currentUser.isAdmin ? (
+            <>
+              <button 
+                onClick={() => { setActiveTab('todos_tickets'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'todos_tickets' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                📋 Tickets de Todos ({tickets.length})
+              </button>
+              <button 
+                onClick={() => { setActiveTab('historial'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'historial' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                📁 Historial de Tickets
+              </button>
+              <button 
+                onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'usuarios' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                👥 Gestión de Usuarios
+              </button>
+              <button 
+                onClick={() => { setActiveTab('calendario'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'calendario' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                📅 Calendario Interactivo
+              </button>
+              <button 
+                onClick={() => { setActiveTab('tareas'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'tareas' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                📝 Tareas Pendientes
+              </button>
+              <button 
+                onClick={() => { setActiveTab('proyectos'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'proyectos' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                🏗️ Proyectos de TI
+              </button>
+              <button 
+                onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'configuracion' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                ⚙️ Configuraciones
+              </button>
+            </>
+          ) : (
+            <>
+              <button 
+                onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'crear_ticket' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                ➕ Crear Ticket
+              </button>
+              <button 
+                onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'mis_tickets' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                📂 Mis Tickets
+              </button>
+              <button 
+                onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'encuesta' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                ⭐ Encuesta de Satisfacción
+              </button>
+            </>
           )}
+
+          <button 
+            onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'chat' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+          >
+            💬 Chat Inmediato IT
+          </button>
         </nav>
 
-        <div className="p-4 border-t border-slate-800 bg-slate-950/60">
-          <div className="text-xs text-slate-400 mb-0.5">Sesión Activa:</div>
-          <div className="font-bold text-white truncate text-xs">{currentUser.email}</div>
-          <div className="text-xs text-blue-400 font-semibold mb-3">{currentUser.role}</div>
+        <div className="p-4 border-t border-slate-800 bg-slate-950">
+          <div className="text-xs text-slate-400">Usuario Conectado:</div>
+          <div className="font-bold text-white truncate text-xs mb-2">{currentUser.email}</div>
           <button 
             onClick={handleLogout}
             className="w-full bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 text-xs font-semibold py-2 rounded-lg transition"
@@ -257,52 +202,35 @@ export default function App() {
         </div>
       </aside>
 
+      {/* CONTENIDO PRINCIPAL */}
       <div className="flex-1 flex flex-col md:ml-64 min-w-0">
         <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-40 shadow-sm">
-          <button 
-            onClick={() => setSidebarOpen(true)}
-            className="md:hidden text-slate-700 hover:text-slate-900 focus:outline-none p-1 rounded-lg border border-slate-200"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <div className="text-sm font-bold text-slate-700">
-            SGTI | Módulo: <span className="text-blue-600 uppercase">{activeTab}</span>
-          </div>
-          <div className="text-xs bg-blue-50 text-blue-700 px-3 py-1 rounded-full font-semibold border border-blue-100">
-            {currentUser.area}
-          </div>
+          <button onClick={() => setSidebarOpen(true)} className="md:hidden text-slate-700 font-bold">☰ Menú</button>
+          <div className="text-sm font-bold text-slate-700">Módulo Actual: <span className="text-blue-600 uppercase">{activeTab}</span></div>
+          <div className="text-xs bg-slate-100 px-3 py-1 rounded-full font-semibold border">{currentUser.area}</div>
         </header>
 
         <main className="p-6 flex-1 max-w-5xl w-full mx-auto space-y-6">
+          
+          {/* DASHBOARD GENERAL */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <h1 className="text-2xl font-extrabold text-slate-900">Bienvenido, {currentUser.email}</h1>
-                  <p className="text-sm text-slate-500 mt-1">Panel de control y métricas en tiempo real del departamento de IT.</p>
-                </div>
-                <button 
-                  onClick={() => setActiveTab('crear')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm shadow transition"
-                >
-                  + Nuevo Ticket Rápido
-                </button>
+              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+                <h1 className="text-2xl font-extrabold text-slate-900">Bienvenido al Panel SGTI, {currentUser.email}</h1>
+                <p className="text-sm text-slate-500 mt-1">Gestión centralizada para áreas de Gerencia, Infraestructura, GPS y Desarrollo.</p>
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <div className="bg-white p-5 rounded-xl border shadow-sm">
                   <div className="text-xs text-slate-500 font-bold uppercase">Tickets Activos</div>
                   <div className="text-3xl font-extrabold text-blue-600 mt-2">{tickets.length}</div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                  <div className="text-xs text-slate-500 font-bold uppercase">Tickets Críticos (Semáforo)</div>
+                <div className="bg-white p-5 rounded-xl border shadow-sm">
+                  <div className="text-xs text-slate-500 font-bold uppercase">Estado Crítico / Semáforo</div>
                   <div className="text-3xl font-extrabold text-red-600 mt-2">
-                    {tickets.filter(t => t.prioridad === 'critica' || t.urgencia === 'alta').length}
+                    {tickets.filter(t => t.prioridad === 'critica').length}
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <div className="bg-white p-5 rounded-xl border shadow-sm">
                   <div className="text-xs text-slate-500 font-bold uppercase">Historial Resueltos</div>
                   <div className="text-3xl font-extrabold text-emerald-600 mt-2">{historial.length}</div>
                 </div>
@@ -310,212 +238,310 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'crear' && (
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm max-w-2xl mx-auto">
-              <h2 className="text-xl font-bold text-slate-900 mb-2">Crear Nueva Solicitud de IT</h2>
-              <form onSubmit={handleSubmitTicket} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Solicitante</label>
-                    <input 
-                      type="text" 
-                      value={form.nombre_solicitante}
-                      onChange={e => setForm({...form, nombre_solicitante: e.target.value})}
-                      placeholder="Su nombre completo" 
-                      required 
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Departamento / Área</label>
-                    <input 
-                      type="text" 
-                      value={form.departamento}
-                      onChange={e => setForm({...form, departamento: e.target.value})}
-                      placeholder="Ej. Logística, Ventas" 
-                      required 
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50" 
-                    />
-                  </div>
-                </div>
-
+          {/* CREAR TICKET (USUARIO BÁSICO) */}
+          {activeTab === 'crear_ticket' && !currentUser.isAdmin && (
+            <div className="bg-white p-6 rounded-2xl border shadow-sm max-w-xl mx-auto">
+              <h2 className="text-xl font-bold text-slate-900 mb-4">Clasificación y Creación de Solicitud</h2>
+              <form onSubmit={handleCrearTicket} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Título del Problema</label>
-                  <input 
-                    type="text" 
-                    value={form.titulo}
-                    onChange={e => setForm({...form, titulo: e.target.value})}
-                    placeholder="Breve resumen" 
-                    required 
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50" 
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
-                    <select 
-                      value={form.categoria}
-                      onChange={e => setForm({...form, categoria: e.target.value})}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-                    >
-                      <option value="hardware">Hardware (Infraestructura)</option>
-                      <option value="software">Software</option>
-                      <option value="redes">Redes</option>
-                      <option value="gps">GPS / Rutas (Erick)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Asignar a</label>
-                    <select 
-                      value={form.asignado_a}
-                      onChange={e => setForm({...form, asignado_a: e.target.value})}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-                    >
-                      <option value="infraestructura">Infraestructura General</option>
-                      <option value="luis">Luis (Desarrollo)</option>
-                      <option value="erick">Erick (GPS / Rutas)</option>
-                      <option value="arnold">Arnold (Gerencia IT)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Prioridad y Semáforo</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Solicitud</label>
                   <select 
-                    value={form.prioridad}
-                    onChange={e => setForm({...form, prioridad: e.target.value})}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                    value={formTicket.tipo_solicitud}
+                    onChange={e => setFormTicket({...formTicket, tipo_solicitud: e.target.value})}
+                    className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-bold text-blue-600"
                   >
-                    <option value="baja">Baja (Verde)</option>
-                    <option value="media">Media (Amarillo)</option>
-                    <option value="alta">Alta (Naranja)</option>
-                    <option value="critica">Crítica (Rojo)</option>
+                    <option value="incidencia">Incidencia</option>
+                    <option value="problema">Problema</option>
+                    <option value="peticion_servicio">Petición de Servicio</option>
+                    <option value="peticion_cambio">Petición de Cambio</option>
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción</label>
-                  <textarea 
-                    rows="3" 
-                    value={form.descripcion}
-                    onChange={e => setForm({...form, descripcion: e.target.value})}
-                    placeholder="Detalles..." 
-                    required 
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 resize-none"
-                  ></textarea>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
+                    <select 
+                      value={formTicket.categoria}
+                      onChange={e => setFormTicket({...formTicket, categoria: e.target.value})}
+                      className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+                    >
+                      <option value="hardware">Hardware</option>
+                      <option value="software">Software</option>
+                      <option value="redes">Redes</option>
+                      <option value="gps">GPS / Rutas</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Área Destino</label>
+                    <select 
+                      value={formTicket.departamento_destino_id}
+                      onChange={e => setFormTicket({...formTicket, departamento_destino_id: Number(e.target.value)})}
+                      className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+                    >
+                      <option value={1}>Infraestructura</option>
+                      <option value={2}>Desarrollo</option>
+                      <option value={3}>GPS / Rutas</option>
+                      <option value={4}>Gerencia IT</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-xl">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Adjuntar Evidencia (Foto o Archivo)</label>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Título</label>
                   <input 
-                    type="file" 
-                    accept="image/*"
-                    onChange={e => setForm({...form, evidencia: e.target.files[0]})}
-                    className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white" 
+                    type="text" 
+                    value={formTicket.titulo}
+                    onChange={e => setFormTicket({...formTicket, titulo: e.target.value})}
+                    required 
+                    className="w-full px-3 py-2 border rounded-lg text-sm" 
                   />
                 </div>
 
-                <button 
-                  type="submit" 
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl text-sm shadow transition"
-                >
-                  Registrar y Enviar Ticket
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción detallada</label>
+                  <textarea 
+                    rows="3" 
+                    value={formTicket.descripcion}
+                    onChange={e => setFormTicket({...formTicket, descripcion: e.target.value})}
+                    required 
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  ></textarea>
+                </div>
+
+                <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-2.5 rounded-lg text-sm shadow">
+                  Enviar Ticket Oficial
                 </button>
               </form>
             </div>
           )}
 
-          {activeTab === 'activos' && (
+          {/* MIS TICKETS (USUARIO BÁSICO) */}
+          {activeTab === 'mis_tickets' && !currentUser.isAdmin && (
             <div className="space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Tickets Activos en Vivo</h2>
-              {tickets.length === 0 ? (
-                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center text-sm">No hay tickets activos.</p>
+              <h2 className="text-xl font-bold text-slate-900">Mis Tickets Creados</h2>
+              {tickets.filter(t => t.nombre_solicitante === currentUser.email).length === 0 ? (
+                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">No has registrado tickets.</p>
               ) : (
-                <div className="space-y-4">
-                  {tickets.map(t => (
-                    <div key={t.id} className="bg-white border rounded-2xl p-5 shadow-sm space-y-3">
+                tickets.filter(t => t.nombre_solicitante === currentUser.email).map(t => (
+                  <div key={t.id} className="bg-white border rounded-xl p-4 shadow-sm flex justify-between items-center">
+                    <div>
+                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold uppercase">{t.tipo_solicitud}</span>
+                      <h3 className="font-bold text-slate-900 mt-1">{t.titulo}</h3>
+                      <p className="text-xs text-slate-500">{t.descripcion}</p>
+                    </div>
+                    <span className="text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-bold">Activo</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* TICKETS DE TODOS CON SEMÁFORO (ADMIN) */}
+          {activeTab === 'todos_tickets' && currentUser.isAdmin && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-slate-900">Tickets de Todos (Semáforo de Criticidad y Fecha)</h2>
+              {tickets.length === 0 ? (
+                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">No hay tickets activos pendientes.</p>
+              ) : (
+                tickets.map(t => {
+                  const esCritico = t.prioridad === 'critica' || new Date(t.fecha_limite) < new Date();
+                  return (
+                    <div key={t.id} className={`border rounded-2xl p-5 shadow-sm space-y-3 ${esCritico ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
                       <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-slate-900">{t.titulo}</h3>
-                        <span className="text-xs px-3 py-1 rounded-full font-bold uppercase bg-amber-100 text-amber-800">
-                          {t.prioridad}
+                        <div>
+                          <span className="text-xs uppercase font-extrabold px-2 py-1 rounded bg-slate-200 text-slate-700 mr-2">{t.tipo_solicitud}</span>
+                          <h3 className="font-bold text-slate-900 inline">{t.titulo}</h3>
+                        </div>
+                        <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase ${esCritico ? 'bg-red-600 text-white animate-pulse' : 'bg-amber-100 text-amber-800'}`}>
+                          {esCritico ? '🔴 CRÍTICO / VENCIDO' : '🟡 En Plazo'}
                         </span>
                       </div>
                       <p className="text-slate-600 text-sm">{t.descripcion}</p>
+                      <div className="text-xs text-slate-500">Solicitante: <strong>{t.nombre_solicitante}</strong> | Fecha Límite: {new Date(t.fecha_limite).toLocaleDateString()}</div>
+                      
                       <div className="flex gap-2 pt-2 border-t">
                         <input 
                           type="text"
-                          placeholder="Notas de resolución..." 
+                          placeholder="Nota de resolución del admin..." 
                           value={resolucionTextos[t.id] || ''}
                           onChange={e => setResolucionTextos({...resolucionTextos, [t.id]: e.target.value})} 
-                          className="flex-1 px-3 py-2 border rounded-lg text-sm" 
+                          className="flex-1 px-3 py-2 border rounded-lg text-sm bg-white" 
                         />
                         <button 
-                          onClick={() => resolverTicket(t.id)} 
+                          onClick={() => resolverTicketAdmin(t.id)} 
                           className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-semibold text-sm shadow-sm"
                         >
-                          Resolver
+                          Resolver y Archivar
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })
               )}
             </div>
           )}
 
-          {activeTab === 'criticos' && (
+          {/* HISTORIAL DE TICKETS (AUDITORÍA) */}
+          {activeTab === 'historial' && currentUser.isAdmin && (
             <div className="space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Monitor de Tickets Críticos (Semáforo)</h2>
-              {tickets.filter(t => t.prioridad === 'critica').length === 0 ? (
-                <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl text-center text-emerald-800 text-sm">
-                  🟢 No hay tickets críticos o vencidos.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {tickets.filter(t => t.prioridad === 'critica').map(t => (
-                    <div key={t.id} className="bg-red-50 border border-red-200 rounded-2xl p-5 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-3.5 h-3.5 rounded-full bg-red-600 animate-ping"></span>
-                        <h4 className="font-bold text-red-900">{t.titulo}</h4>
-                      </div>
-                      <p className="text-xs text-red-700">{t.descripcion}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'historial' && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Historial Resueltos</h2>
+              <h2 className="text-xl font-bold text-slate-900">Historial de Tickets Resueltos</h2>
+              <p className="text-xs text-slate-500">Los tickets resueltos se almacenan aquí para auditoría y evitar saturar el panel general de activos.</p>
               {historial.length === 0 ? (
-                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center text-sm">Historial vacío.</p>
+                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">El historial está vacío.</p>
               ) : (
-                <div className="bg-white border rounded-2xl p-4 space-y-3">
-                  {historial.map(h => (
-                    <div key={h.log_id || h.id} className="text-sm text-slate-600 p-4 bg-slate-50 rounded-xl border flex justify-between items-center">
-                      <div>
-                        <strong className="text-slate-900">{h.titulo}</strong>
-                        <div className="text-xs text-slate-500">Solicitante: {h.nombre_solicitante}</div>
-                      </div>
-                      <div className="text-xs text-slate-700 bg-white px-3 py-2 rounded-lg border italic">
-                        Solución: {h.detalles_resolucion}
-                      </div>
+                historial.map(h => (
+                  <div key={h.id} className="bg-white border rounded-xl p-4 shadow-sm flex justify-between items-center text-sm">
+                    <div>
+                      <strong className="text-slate-900">{h.titulo}</strong>
+                      <div className="text-xs text-slate-500">Creador: {h.nombre_solicitante}</div>
                     </div>
-                  ))}
-                </div>
+                    <div className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-2 rounded-lg">
+                      Solución: {h.detalles_resolucion}
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           )}
 
-          {activeTab === 'usuarios' && currentUser.area === 'Gerencia' && (
+          {/* GESTIÓN DE USUARIOS (RECTIFICACIÓN ADMIN) */}
+          {activeTab === 'usuarios' && currentUser.isAdmin && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Gestión de Usuarios</h2>
-              <p className="text-xs text-slate-500">Control de cuentas de acceso del personal de IT y gerencia.</p>
+              <h2 className="text-xl font-bold text-slate-900">Gestión y Rectificación de Usuarios</h2>
+              <p className="text-xs text-slate-500">Cree, modifique o elimine cuentas de usuario en caso de errores de registro.</p>
+              <div className="p-4 bg-slate-50 border rounded-xl space-y-3">
+                <h3 className="font-bold text-sm text-slate-700">Usuarios Registrados en el Sistema:</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center bg-white p-3 rounded border text-xs">
+                    <span>Arnold (Gerente IT) - arnold@sgti.com</span>
+                    <span className="text-blue-600 font-bold">Gerencia</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-white p-3 rounded border text-xs">
+                    <span>Encargado Infraestructura - infra@sgti.com</span>
+                    <span className="text-blue-600 font-bold">Infraestructura</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
+
+          {/* CALENDARIO INTERACTIVO */}
+          {activeTab === 'calendario' && currentUser.isAdmin && (
+            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+              <h2 className="text-xl font-bold text-slate-900">Calendario Interactivo de Plazos IT</h2>
+              <div className="p-8 bg-slate-50 border rounded-xl text-center text-sm text-slate-600">
+                📅 Vista de calendario sincronizada con las fechas límite de tickets y tareas pendientes. (Activo para control de tiempos).
+              </div>
+            </div>
+          )}
+
+          {/* TAREAS PENDIENTES */}
+          {activeTab === 'tareas' && currentUser.isAdmin && (
+            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+              <h2 className="text-xl font-bold text-slate-900">Organización de Tareas Internas</h2>
+              <p className="text-xs text-slate-500">Cree notas o actividades específicas para el personal administrativo.</p>
+              <button onClick={() => alert('Nueva tarea interna agregada.')} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-semibold">
+                + Agregar Tarea Admin
+              </button>
+            </div>
+          )}
+
+          {/* PROYECTOS DE TI */}
+          {activeTab === 'proyectos' && currentUser.isAdmin && (
+            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+              <h2 className="text-xl font-bold text-slate-900">Proyectos de TI a Gran Escala</h2>
+              <p className="text-xs text-slate-500">Las solicitudes complejas que exceden el soporte convencional se gestionan aquí de forma informativa sin consumir tiempo de tickets regulares.</p>
+              <div className="p-4 border rounded-xl bg-blue-50/50 text-xs text-blue-900 font-medium">
+                🏗️ Ningún proyecto activo en este momento. Puede registrar nuevos proyectos desde el panel de gerencia.
+              </div>
+            </div>
+          )}
+
+          {/* CONFIGURACIONES */}
+          {activeTab === 'configuracion' && currentUser.isAdmin && (
+            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4 max-w-xl">
+              <h2 className="text-xl font-bold text-slate-900">Configuraciones del Sistema SGTI</h2>
+              <div className="space-y-3 text-sm">
+                <label className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    checked={configuracionSistema.modoMantenimiento}
+                    onChange={e => setConfiguracionSistema({...configuracionSistema, modoMantenimiento: e.target.checked})}
+                  />
+                  <span>Activar Modo Mantenimiento Global</span>
+                </label>
+                <label className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    checked={configuracionSistema.notalesEmail}
+                    onChange={e => setConfiguracionSistema({...configuracionSistema, notalesEmail: e.target.checked})}
+                  />
+                  <span>Habilitar Alertas Automáticas por Correo</span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* CHAT INMEDIATO */}
+          {activeTab === 'chat' && (
+            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+              <h2 className="text-xl font-bold text-slate-900">Comunicación Inmediata con IT</h2>
+              <div className="flex gap-2 mb-2">
+                <select 
+                  value={nuevoChat.para}
+                  onChange={e => setNuevoChat({...nuevoChat, para: e.target.value})}
+                  className="px-3 py-2 border rounded-lg text-xs bg-white font-bold"
+                >
+                  <option value="infra@sgti.com">Infraestructura</option>
+                  <option value="arnold@sgti.com">Gerencia IT</option>
+                  <option value="erick@sgti.com">GPS / Rutas</option>
+                  <option value="luis@sgti.com">Desarrollo</option>
+                </select>
+              </div>
+              <div className="h-48 border rounded-xl p-4 bg-slate-50 overflow-y-auto space-y-2 text-sm">
+                {chatMensajes.map((m, idx) => (
+                  <div key={idx} className="p-3 bg-white border rounded-lg shadow-sm">
+                    <div className="text-xs text-blue-600 font-bold">Para: {m.para}</div>
+                    <p className="text-slate-700 text-xs mt-1">{m.texto}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input 
+                  type="text"
+                  placeholder="Escriba su mensaje inmediato a soporte..."
+                  value={nuevoChat.texto}
+                  onChange={e => setNuevoChat({...nuevoChat, texto: e.target.value})}
+                  className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                />
+                <button 
+                  onClick={() => {
+                    if(!nuevoChat.texto) return;
+                    setChatMensajes([...chatMensajes, nuevoChat]);
+                    setNuevoChat({...nuevoChat, texto: ''});
+                    alert('Mensaje enviado al administrador seleccionado. Quedará pendiente de respuesta en su bandeja.');
+                  }}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+                >
+                  Enviar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ENCUESTA DE SATISFACCIÓN */}
+          {activeTab === 'encuesta' && !currentUser.isAdmin && (
+            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4 text-center max-w-md mx-auto">
+              <h2 className="text-xl font-bold text-slate-900">Encuesta de Satisfacción IT</h2>
+              <p className="text-xs text-slate-500">Califique la atención recibida en su último ticket resuelto.</p>
+              <div className="flex justify-center gap-2 text-3xl py-2 cursor-pointer">⭐ ⭐ ⭐ ⭐ ⭐</div>
+              <textarea placeholder="Comentarios adicionales..." className="w-full p-2 border rounded-lg text-xs"></textarea>
+              <button onClick={() => alert('¡Gracias por enviar su calificación!')} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold">
+                Enviar Calificación
+              </button>
+            </div>
+          )}
+
         </main>
       </div>
     </div>

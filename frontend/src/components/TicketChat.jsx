@@ -1,98 +1,55 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 
-export default function TicketChat({ ticketId, usuarioActual }) {
-  const [mensajes, setMensajes] = useState([]);
-  const [nuevoMensaje, setNuevoMensaje] = useState('');
-  const chatEndRef = useRef(null);
+export default function TicketChat({ currentUser, chatMensajes, apiBaseUrl, onMessageSent }) {
+  const [nuevoMensaje, setNuevoMensaje] = useState({ para: 'infra@sgti.com', texto: '' });
 
-  // Cargar mensajes al abrir y hacer polling cada 4 segundos (para simular tiempo real de forma sencilla)
-  useEffect(() => {
-    cargarMensajes();
-    const intervalo = setInterval(cargarMensajes, 4000);
-    return () => clearInterval(intervalo);
-  }, [ticketId]);
+  const handleEnviarChat = () => {
+    if (!nuevoMensaje.texto.trim()) return;
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [mensajes]);
-
-  const cargarMensajes = async () => {
-    try {
-      const res = await fetch(`http://localhost:5000/api/chat/${ticketId}/mensajes`);
-      const data = await res.json();
-      setMensajes(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const enviarMensaje = async (e) => {
-    e.preventDefault();
-    if (!nuevoMensaje.trim()) return;
-
-    try {
-      const res = await fetch(`http://localhost:5000/api/chat/${ticketId}/mensajes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          remitente_id: usuarioActual.id,
-          mensaje: nuevoMensaje
-        })
-      });
-
-      if (res.ok) {
-        setNuevoMensaje('');
-        cargarMensajes();
+    fetch(`${apiBaseUrl}/api/chat/enviar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ de: currentUser.email, para: nuevoMensaje.para, mensaje: nuevoMensaje.texto })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        onMessageSent();
+        setNuevoMensaje({ ...nuevoMensaje, texto: '' });
       }
-    } catch (err) {
-      console.error(err);
-    }
+    })
+    .catch(err => {
+      console.error("Error chat:", err);
+      setNuevoMensaje({ ...nuevoMensaje, texto: '' });
+    });
   };
 
   return (
-    <div className="flex flex-col h-[500px] bg-white border border-gray-200 rounded-lg shadow-md max-w-2xl mx-auto">
-      {/* Cabecera del Chat */}
-      <div className="bg-slate-900 text-white p-4 rounded-t-lg font-semibold flex justify-between items-center">
-        <span>Chat de Soporte - Ticket #{ticketId}</span>
-        <span className="text-xs bg-blue-600 px-2 py-1 rounded">Activo</span>
+    <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+      <h2 className="text-xl font-bold text-slate-900">Chat Directo con IT</h2>
+      <div className="h-64 border rounded-xl p-4 bg-slate-50 overflow-y-auto space-y-3 text-sm">
+        {chatMensajes.map(m => (
+          <div key={m.id || Math.random()} className="p-3 bg-white border rounded-xl shadow-sm">
+            <div className="text-xs text-blue-600 font-bold">{m.de} (Para: {m.para}):</div>
+            <p className="text-slate-700 mt-1">{m.mensaje}</p>
+          </div>
+        ))}
       </div>
-
-      {/* Cuerpo de Mensajes */}
-      <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50">
-        {mensajes.map((m) => {
-          const esMio = m.remitente_id === usuarioActual.id;
-          return (
-            <div key={m.id} className={`flex flex-col ${esMio ? 'items-end' : 'items-start'}`}>
-              <span className="text-xs text-gray-500 mb-1">
-                {m.remitente_nombre} ({m.remitente_rol})
-              </span>
-              <div className={`p-3 rounded-lg max-w-[80%] text-sm shadow-sm ${
-                esMio ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-slate-800 border border-gray-200 rounded-bl-none'
-              }`}>
-                {m.mensaje}
-              </div>
-            </div>
-          );
-        })}
-        <div ref={chatEndRef} />
-      </div>
-
-      {/* Input para Enviar Mensaje */}
-      <form onSubmit={enviarMensaje} className="p-3 bg-white border-t border-gray-200 flex gap-2">
+      <div className="flex gap-2">
         <input 
           type="text"
-          value={nuevoMensaje}
-          onChange={(e) => setNuevoMensaje(e.target.value)}
-          placeholder="Escribe un mensaje para IT o el usuario..."
-          className="flex-1 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          placeholder="Escriba su mensaje inmediato..."
+          value={nuevoMensaje.texto}
+          onChange={e => setNuevoMensaje({...nuevoMensaje, texto: e.target.value})}
+          className="flex-1 px-3 py-2 border rounded-lg text-sm"
         />
         <button 
-          type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-blue-700 transition text-sm"
+          onClick={handleEnviarChat}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow"
         >
           Enviar
         </button>
-      </form>
+      </div>
     </div>
   );
 }
