@@ -26,8 +26,7 @@ SGTI/
 │   ├── prisma/
 │   ├── scripts/
 │   ├── package.json
-│   ├── prisma.config.ts
-│   └── server.js
+│   └── prisma.config.ts
 └── frontend/
     ├── public/
     ├── src/
@@ -43,16 +42,14 @@ SGTI/
 
 | Archivo | Responsabilidad |
 | --- | --- |
-| `backend/src/index.js` | Punto de entrada usado por `npm start` y `npm run dev`. Configura Express, CORS, JSON, archivos estáticos `/uploads` y monta las rutas de chat, autenticación, tickets y administración. Escucha en `PORT` o en el puerto 5000. |
-| `backend/server.js` | Segundo punto de entrada alternativo. No es el indicado por el script `start` del paquete y no monta las rutas `/api/chat`; para el uso normal se debe iniciar `src/index.js`. |
+| `backend/src/index.js` | Punto de entrada usado por `npm start` y `npm run dev`. Configura Express, CORS y JSON, y monta las rutas de chat, autenticación, tickets y administración. Escucha en `PORT` o en el puerto 5000. |
 | `backend/src/config/db.js` | Crea y exporta el pool PostgreSQL de `pg`, conectado por `DATABASE_URL`. |
 | `backend/src/middleware/auth.js` | Firma y valida tokens HMAC, comprueba que el usuario siga activo en la base de datos y ofrece la protección por rol administrativo. |
-| `backend/src/middleware/upload.js` | Configura almacenamiento local de archivos en `backend/uploads` y un límite de 5 MB. No está conectado a ninguna ruta activa de carga en el código revisado. |
-| `backend/src/routes/authRoutes.js` | Declara registro e inicio de sesión. |
+| `backend/src/routes/authRoutes.js` | Declara la consulta pública de áreas, el registro y el inicio de sesión. |
 | `backend/src/routes/ticketRoutes.js` | Declara operaciones autenticadas de tickets, historial, encuestas, asignación, resolución y mensajes. |
 | `backend/src/routes/adminRoutes.js` | Declara operaciones de administración de usuarios, tickets, tareas, proyectos, calendario y configuración. |
 | `backend/src/routes/chatRoutes.js` | Declara conversaciones directas y mensajes asociados a tickets. |
-| `backend/src/controllers/authController.js` | Normaliza credenciales, autentica, registra usuarios finales, almacena contraseñas con `scrypt` y actualiza contraseñas heredadas al iniciar sesión. |
+| `backend/src/controllers/authController.js` | Lista áreas disponibles, normaliza credenciales, autentica, registra usuarios finales con un área válida, almacena contraseñas con `scrypt` y actualiza contraseñas heredadas al iniciar sesión. |
 | `backend/src/controllers/ticketAdvancedController.js` | Implementa lectura y creación de tickets, historial, encuestas, asignación, resolución y mensajes por ticket. |
 | `backend/src/controllers/adminYUsuarioController.js` | Implementa las operaciones administrativas, métricas, seguimiento de tickets, calendario, tareas, proyectos y configuraciones. |
 | `backend/src/controllers/chatController.js` | Lee y envía mensajes dentro de un ticket, comprobando acceso del solicitante o de un administrador. |
@@ -72,10 +69,6 @@ SGTI/
 | `frontend/src/components/App.jsx` | Contiene el estado principal, las vistas, la navegación por pestañas, las llamadas a la API y los formularios de la aplicación activa. |
 | `frontend/src/components/Login.jsx` | Muestra el formulario de inicio de sesión y registro. |
 | `frontend/src/api.js` | Centraliza `fetch` autenticado: recupera el token guardado en `localStorage` y lo envía como `Authorization: Bearer`. |
-| `frontend/src/components/CrearTicket.jsx` | Formulario alternativo de creación de ticket; no está importado por `App.jsx` en la versión revisada. |
-| `frontend/src/components/TicketDashboard.jsx` | Panel resumido alternativo; no está importado por `App.jsx` en la versión revisada. |
-| `frontend/src/components/TicketChat.jsx` | Componente alternativo para chat directo; no está importado por `App.jsx` en la versión revisada. |
-| `frontend/src/components/PanelGestionIT.jsx` | Panel alternativo de tickets; no está importado por `App.jsx` en la versión revisada. |
 | `frontend/src/tailwind.css` | Incluye las capas base, componentes y utilidades de Tailwind CSS. |
 | `frontend/public/index.html` | HTML inicial de la aplicación y nodo `root`. |
 | `frontend/build/` | Salida compilada existente. Sus recursos son artefactos generados; el código mantenible está en `frontend/src/`. |
@@ -107,11 +100,11 @@ El registro público crea cuentas con rol `usuario_final`. Las rutas bajo `/api/
 4. Iniciar el backend desde `backend/` con `npm run dev` durante desarrollo o `npm start` para ejecución normal. Ambos comandos cargan `src/index.js`.
 5. Iniciar el frontend desde `frontend/` con `npm start`.
 
-**Atención a los puertos:** el backend escucha por defecto en el puerto 5000, mientras que `frontend/package.json` configura el proxy de desarrollo hacia `http://127.0.0.1:4000`. Para que las peticiones funcionen, se debe hacer coincidir la configuración: por ejemplo, ejecutar el backend con `PORT=4000`, o configurar `REACT_APP_API_BASE_URL` en el frontend con la URL real del backend, como `http://127.0.0.1:5000`. CORS está habilitado en Express.
+**Puertos:** el backend y el proxy de desarrollo del frontend usan por defecto el puerto 5000. Si se cambia el puerto del backend o se despliega el frontend por separado, configurar `REACT_APP_API_BASE_URL` con la URL correspondiente. CORS está habilitado en Express.
 
 ### 4.2 Alta e inicio de sesión
 
-1. Un usuario puede registrarse desde la pantalla de acceso con nombre, correo y contraseña de al menos ocho caracteres. El formulario no ofrece selección de área; el controlador acepta `departamento_id` si llega en la petición.
+1. Un usuario puede registrarse desde la pantalla de acceso con nombre, correo, contraseña de al menos ocho caracteres y un área elegida del catálogo actual de la base. El backend valida que el área exista.
 2. El backend normaliza el correo, verifica duplicados y guarda la contraseña con `scrypt`, un salt aleatorio y la clave derivada.
 3. El servidor devuelve un token firmado y los datos básicos del usuario. El frontend guarda ambos en `localStorage` bajo `sgti_user`.
 4. En llamadas protegidas, el frontend añade el token Bearer. El backend verifica la firma y expiración y vuelve a consultar en la base de datos que la cuenta esté activa.
@@ -140,12 +133,13 @@ El registro público crea cuentas con rol `usuario_final`. Las rutas bajo `/api/
 
 ## 5. API HTTP
 
-Todas las respuestas y los métodos se implementan en las rutas del backend. Salvo inicio de sesión y registro, las operaciones indicadas requieren autenticación. `/api/admin/*` requiere además un rol administrativo.
+Todas las respuestas y los métodos se implementan en las rutas del backend. Salvo consulta de áreas, inicio de sesión y registro, las operaciones indicadas requieren autenticación. `/api/admin/*` requiere además un rol administrativo.
 
 ### Autenticación: `/api/auth`
 
 | Método y ruta | Uso |
 | --- | --- |
+| `GET /api/auth/departamentos` | Listar las áreas disponibles para registro y formularios. |
 | `POST /api/auth/login` | Iniciar sesión con correo y contraseña. |
 | `POST /api/auth/registro` | Crear una cuenta de usuario final. |
 
@@ -306,19 +300,14 @@ Antes de aprovisionar administradores o iniciar los flujos de tickets, la base d
 - `cors()` está habilitado sin restricción explícita de origen en el servidor revisado.
 - Las peticiones SQL observadas usan parámetros para los valores variables.
 - El control de administrador central se aplica a todas las rutas `/api/admin`. Las rutas de tickets y chat tienen autenticación y controles adicionales en sus controladores.
-- El middleware de carga limita tamaño, pero no se encontró una ruta que lo use. No debe asumirse que la carga de adjuntos está disponible.
+- La API activa no ofrece carga de archivos adjuntos.
 - El ajuste `alertas_email` se persiste y aparece en la interfaz, pero no se encontró un servicio SMTP que envíe alertas.
 
 ## 9. Observaciones antes de presentar o desplegar
 
 1. **El esquema base de PostgreSQL falta en el repositorio.** Para afirmar que la base de datos está documentada al 100 %, hace falta obtener un esquema de la instancia (`pg_dump --schema-only`) o recuperar el DDL original. Este informe separa lo explícito de lo inferido.
 2. **Prisma y el SQL operativo difieren.** Alinear `schema.prisma` y las migraciones con las tablas reales antes de usar Prisma para migraciones.
-3. **El puerto de frontend y backend difiere por defecto.** El frontend apunta su proxy a 4000; el backend escucha en 5000. Configurar un valor común.
-4. **Hay componentes frontend alternativos sin integrar.** `CrearTicket.jsx`, `TicketDashboard.jsx`, `TicketChat.jsx` y `PanelGestionIT.jsx` no son importados por la raíz activa `App.jsx`; las pantallas utilizadas están implementadas directamente en `App.jsx`.
-5. **Hay dos entradas de backend.** El comando npm activo inicia `src/index.js`; `server.js` no monta la ruta `/api/chat`.
-6. **La creación pública de cuentas no asigna área desde la interfaz.** La pantalla manda nombre, correo y contraseña, no `departamento_id`; la cuenta puede quedar sin área.
-7. **La interfaz usa selección de áreas por IDs fijos (1 a 4).** Esos IDs deben corresponder a las áreas esperadas en la base.
-8. **Las rutas de tareas y proyectos admiten edición en el backend**, pero el listado administrativo revisado no muestra controles para eliminar o editar todos los datos de forma uniforme; validar el comportamiento real en la interfaz antes de presentarlo como flujo pulido.
+3. **La edición de tareas no permite cambiar su estado.** Ya permite editar título, descripción, fecha límite y responsable; para añadir opciones de estado sin arriesgar valores incompatibles, primero hay que confirmar el tipo y los valores válidos de `tareas_it.estado` en el esquema real.
 
 ## 10. Resumen para exposición
 

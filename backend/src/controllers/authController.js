@@ -13,6 +13,15 @@ async function hashPassword(password) {
 
 exports.hashPassword = hashPassword;
 
+exports.listarDepartamentos = async (_req, res) => {
+  try {
+    const { rows } = await db.query('SELECT id, nombre FROM departamentos ORDER BY nombre');
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'No se pudieron cargar las áreas.' });
+  }
+};
+
 async function verifyPassword(password, storedPassword) {
   const [algorithm, salt, hash] = storedPassword.split('$');
   if (algorithm !== 'scrypt' || !salt || !hash) {
@@ -76,19 +85,28 @@ exports.login = async (req, res) => {
 exports.registrar = async (req, res) => {
   const { nombre, email, password, departamento_id } = req.body;
   const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const departmentId = Number(departamento_id);
 
   if (!nombre?.trim() || !normalizedEmail || !password || password.length < 8) {
     return res.status(400).json({ success: false, message: 'Ingrese nombre, correo y una contraseña de al menos 8 caracteres.' });
   }
+  if (!Number.isInteger(departmentId) || departmentId <= 0) {
+    return res.status(400).json({ success: false, message: 'Seleccione un área válida.' });
+  }
 
   try {
+    const departmentResult = await db.query('SELECT id, nombre FROM departamentos WHERE id = $1', [departmentId]);
+    if (!departmentResult.rowCount) {
+      return res.status(400).json({ success: false, message: 'El área seleccionada no existe.' });
+    }
     const query = `
       INSERT INTO usuarios (nombre, email, password, rol, departamento_id)
       VALUES ($1, $2, $3, 'usuario_final', $4)
       RETURNING id, nombre, email, rol, departamento_id;
     `;
-    const { rows } = await db.query(query, [nombre.trim(), normalizedEmail, await hashPassword(password), departamento_id || null]);
-    res.status(201).json({ success: true, user: formatUser(rows[0]), token: signToken(rows[0]) });
+    const { rows } = await db.query(query, [nombre.trim(), normalizedEmail, await hashPassword(password), departmentId]);
+    const user = { ...rows[0], departamento_nombre: departmentResult.rows[0].nombre };
+    res.status(201).json({ success: true, user: formatUser(user), token: signToken(user) });
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ success: false, message: 'Ya existe una cuenta con ese correo.' });

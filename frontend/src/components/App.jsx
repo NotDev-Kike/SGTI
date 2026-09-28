@@ -27,6 +27,7 @@ export default function App() {
   const [historial, setHistorial] = useState([]);
   const [ticketsResueltos, setTicketsResueltos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
+  const [departamentos, setDepartamentos] = useState([]);
   const [eficienciaAdmins, setEficienciaAdmins] = useState([]);
   const [tareas, setTareas] = useState([]);
   const [proyectos, setProyectos] = useState([]);
@@ -47,17 +48,32 @@ export default function App() {
     titulo: '',
     descripcion: '',
     categoria: 'hardware',
-    departamento_destino_id: 1,
+    departamento_destino_id: '',
     prioridad: 'media'
   });
 
   const [resolucionTextos, setResolucionTextos] = useState({});
   const [nuevoChat, setNuevoChat] = useState('');
-  const [formUsuario, setFormUsuario] = useState({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: 1, activo: true });
-  const [formTarea, setFormTarea] = useState({ id: null, titulo: '', descripcion: '', fecha_limite: '', estado: 'pendiente' });
+  const [formUsuario, setFormUsuario] = useState({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: null, activo: true });
+  const [formTarea, setFormTarea] = useState({ id: null, titulo: '', descripcion: '', asignado_a_id: '', fecha_limite: '', estado: 'pendiente' });
   const [formProyecto, setFormProyecto] = useState({ id: null, titulo: '', descripcion: '', estado: 'planificacion' });
   const [formEncuesta, setFormEncuesta] = useState({ ticket_id: '', calificacion: 5, comentario: '' });
   const [configuracionSistema, setConfiguracionSistema] = useState({ modo_mantenimiento: false, alertas_email: true });
+
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    let active = true;
+    fetch(`${API_BASE_URL}/api/auth/departamentos`)
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success) throw new Error('No se pudieron cargar las áreas.');
+        if (active) setDepartamentos(data.data);
+      })
+      .catch(() => {
+        if (active) setDepartamentos([]);
+      });
+    return () => { active = false; };
+  }, [currentUser]);
 
   useEffect(() => {
     if (currentUser) {
@@ -236,7 +252,7 @@ export default function App() {
         if (!data.success) throw new Error(data.message || 'No se pudo crear el ticket.');
         cargarDatosGlobales();
         alert(`Ticket clasificado como [${formTicket.tipo_solicitud.toUpperCase()}] creado con éxito.`);
-        setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'hardware', departamento_destino_id: 1, prioridad: 'media' });
+        setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'hardware', departamento_destino_id: '', prioridad: 'media' });
         setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'mis_tickets');
       })
       .catch(error => alert(error.message));
@@ -537,13 +553,12 @@ export default function App() {
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Área Destino</label>
                     <select 
                       value={formTicket.departamento_destino_id}
-                      onChange={e => setFormTicket({...formTicket, departamento_destino_id: Number(e.target.value)})}
+                      onChange={e => setFormTicket({...formTicket, departamento_destino_id: Number(e.target.value) || ''})}
+                      required
                       className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
                     >
-                      <option value={1}>Infraestructura</option>
-                      <option value={2}>Desarrollo</option>
-                      <option value={3}>GPS / Rutas</option>
-                      <option value={4}>Gerencia IT</option>
+                      <option value="">Seleccione un área</option>
+                      {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
                     </select>
                   </div>
                 </div>
@@ -692,7 +707,7 @@ export default function App() {
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
                     <select aria-label={`Área para ${ticket.titulo}`} value={areaAsignacion[ticket.id] ?? ticket.departamento_destino_id} onChange={event => setAreaAsignacion(actual => ({ ...actual, [ticket.id]: Number(event.target.value) }))} className="px-3 py-2 border rounded-lg text-sm bg-white">
-                      <option value="1">Infraestructura</option><option value="2">Desarrollo</option><option value="3">GPS</option><option value="4">Gerencia IT</option>
+                      {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
                     </select>
                     <button onClick={() => moverTicketPorArea(ticket, Number(areaAsignacion[ticket.id] ?? ticket.departamento_destino_id))} className="bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-semibold">{ticket.asignado_a_id ? 'Reasignar' : 'Asignar responsable'}</button>
                   </div>
@@ -734,7 +749,7 @@ export default function App() {
                 apiFetch(API_BASE_URL, '/api/admin/usuarios', { method: 'POST', body: JSON.stringify(formUsuario) })
                   .then(res => res.json()).then(data => {
                     if (!data.success) throw new Error(data.message || 'No se pudo guardar el usuario.');
-                    setFormUsuario({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: 1, activo: true });
+                    setFormUsuario({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: null, activo: true });
                     cargarDatosAdministrativos();
                   }).catch(error => alert(error.message));
               }} className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-b pb-5">
@@ -743,11 +758,7 @@ export default function App() {
                 {!formUsuario.id && <input aria-label="Contraseña" type="password" minLength="8" placeholder="Contraseña inicial (8 caracteres mínimo)" required value={formUsuario.password} onChange={e => setFormUsuario({ ...formUsuario, password: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />}
                 <label className="block space-y-1 text-xs font-semibold text-slate-600">
                   <span>Rol de la cuenta</span>
-                  <select aria-label="Rol del usuario" value={formUsuario.rol} onChange={e => {
-                    const rol = e.target.value;
-                    const departamentoPorRol = { admin_infra: 1, admin_desarrollo: 2, admin_gps: 3, gerente_it: 4 };
-                    setFormUsuario({ ...formUsuario, rol, departamento_id: departamentoPorRol[rol] || formUsuario.departamento_id });
-                  }} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
+                  <select aria-label="Rol del usuario" value={formUsuario.rol} onChange={e => setFormUsuario({ ...formUsuario, rol: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
                     <option value="usuario_final">Usuario normal</option>
                     <option value="admin_infra">Administrador de Infraestructura</option>
                     <option value="admin_desarrollo">Administrador de Desarrollo</option>
@@ -757,14 +768,15 @@ export default function App() {
                 </label>
                 <label className="block space-y-1 text-xs font-semibold text-slate-600">
                   <span>Área</span>
-                  <select aria-label="Área" value={formUsuario.departamento_id || ''} onChange={e => setFormUsuario({ ...formUsuario, departamento_id: Number(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
-                    <option value="">Sin área</option><option value="1">Infraestructura</option><option value="2">Desarrollo</option><option value="3">GPS</option><option value="4">Gerencia</option>
+                  <select aria-label="Área" required={formUsuario.rol !== 'usuario_final'} value={formUsuario.departamento_id || ''} onChange={e => setFormUsuario({ ...formUsuario, departamento_id: Number(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
+                    <option value="">{formUsuario.rol === 'usuario_final' ? 'Sin área' : 'Seleccione un área'}</option>
+                    {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
                   </select>
                 </label>
                 {formUsuario.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={formUsuario.activo} onChange={e => setFormUsuario({ ...formUsuario, activo: e.target.checked })} /> Cuenta activa</label>}
                 <div className="flex gap-2">
                   <button className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">{formUsuario.id ? 'Guardar cambios' : 'Crear usuario'}</button>
-                  {formUsuario.id && <button type="button" onClick={() => setFormUsuario({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: 1, activo: true })} className="border px-4 py-2 rounded-lg text-sm">Cancelar</button>}
+                  {formUsuario.id && <button type="button" onClick={() => setFormUsuario({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: null, activo: true })} className="border px-4 py-2 rounded-lg text-sm">Cancelar</button>}
                 </div>
               </form>
               <div className="divide-y">
@@ -826,18 +838,23 @@ export default function App() {
                 event.preventDefault();
                 apiFetch(API_BASE_URL, '/api/admin/tareas', { method: 'POST', body: JSON.stringify(formTarea) }).then(res => res.json()).then(data => {
                   if (!data.success) throw new Error(data.message || 'No se pudo guardar la tarea.');
-                  setFormTarea({ id: null, titulo: '', descripcion: '', fecha_limite: '', estado: 'pendiente' });
+                  setFormTarea({ id: null, titulo: '', descripcion: '', asignado_a_id: currentUser.id, fecha_limite: '', estado: 'pendiente' });
                   cargarDatosAdministrativos();
                 }).catch(error => alert(error.message));
               }} className="grid sm:grid-cols-2 gap-3 border-b pb-5">
                 <input placeholder="Título de tarea" required value={formTarea.titulo} onChange={e => setFormTarea({ ...formTarea, titulo: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input type="date" required value={formTarea.fecha_limite} onChange={e => setFormTarea({ ...formTarea, fecha_limite: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input placeholder="Descripción" value={formTarea.descripcion} onChange={e => setFormTarea({ ...formTarea, descripcion: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
+                <label className="text-xs font-semibold text-slate-600">Responsable
+                  <select required value={formTarea.asignado_a_id || currentUser.id} onChange={e => setFormTarea({ ...formTarea, asignado_a_id: Number(e.target.value) })} className="mt-1 w-full px-3 py-2 border rounded-lg bg-white text-sm font-normal text-slate-800">
+                    {usuarios.filter(usuario => usuario.activo && ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'].includes(usuario.rol)).map(usuario => <option key={usuario.id} value={usuario.id}>{usuario.nombre}</option>)}
+                  </select>
+                </label>
                 <button className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">{formTarea.id ? 'Guardar cambios' : 'Agregar tarea'}</button>
               </form>
               <div className="divide-y">{tareas.map(tarea => <div key={tarea.id} className="py-3 flex justify-between gap-3 text-sm">
                 <div><strong>{tarea.titulo}</strong><div className="text-xs text-slate-500">{tarea.descripcion} · {tarea.asignado_nombre} · {parseLocalDate(tarea.fecha_limite).toLocaleDateString()}</div></div>
-                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', fecha_limite: String(tarea.fecha_limite).slice(0, 10), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(() => cargarDatosAdministrativos())} className="text-red-700 text-xs">Eliminar</button></div>
+                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', asignado_a_id: tarea.asignado_a_id, fecha_limite: String(tarea.fecha_limite).slice(0, 10), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(() => cargarDatosAdministrativos())} className="text-red-700 text-xs">Eliminar</button></div>
               </div>)}</div>
             </div>
           )}

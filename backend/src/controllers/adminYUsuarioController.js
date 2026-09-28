@@ -259,16 +259,17 @@ exports.moverOResolverTicket = async (req, res) => {
   try {
     let asignadoId = null;
     if (auto_asignar) {
-      const rolPorDepartamento = { 1: 'admin_infra', 2: 'admin_desarrollo', 3: 'admin_gps', 4: 'gerente_it' };
       const departamentoId = Number(nuevo_departamento_id);
-      const rol = rolPorDepartamento[departamentoId];
-      if (!rol) return res.status(400).json({ success: false, message: 'El área seleccionada no es válida.' });
+      if (!Number.isInteger(departamentoId) || departamentoId <= 0) {
+        return res.status(400).json({ success: false, message: 'El área seleccionada no es válida.' });
+      }
+      const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
       const { rows: admins } = await db.query(`
         SELECT id FROM usuarios
         WHERE activo = TRUE AND departamento_id = $1 AND rol = ANY($2::text[])
-        ORDER BY CASE WHEN rol = $3 THEN 0 ELSE 1 END, id
+        ORDER BY CASE WHEN rol = 'gerente_it' THEN 0 ELSE 1 END, id
         LIMIT 1;
-      `, [departamentoId, ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'], rol]);
+      `, [departamentoId, adminRoles]);
       if (!admins.length) {
         return res.status(400).json({ success: false, message: 'No hay un administrador activo asignado a esa área.' });
       }
