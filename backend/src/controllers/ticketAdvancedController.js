@@ -1,4 +1,20 @@
 const db = require('../config/db');
+const historialPublicoSql = `
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'tipo', CASE
+        WHEN h.accion LIKE 'Resolución: %' THEN 'Resolución'
+        WHEN h.accion LIKE 'Bloqueo externo: %' THEN 'Bloqueo externo'
+        ELSE 'Actualización'
+      END,
+      'mensaje', SUBSTRING(h.accion FROM '^[^:]+: (.*)$'),
+      'fecha_hora', to_char(h.created_at, 'YYYY-MM-DD HH24:MI:SS')
+    ) ORDER BY h.created_at ASC)
+    FROM ticket_historial h
+    WHERE h.ticket_id = t.id
+      AND (h.accion LIKE 'Seguimiento: %' OR h.accion LIKE 'Bloqueo externo: %' OR h.accion LIKE 'Resolución: %')
+  ), '[]'::json) AS actualizaciones
+`;
 
 // 1. Listar todos los tickets con información relacional (Nombres de creador y departamento)
 exports.listarTickets = async (req, res) => {
@@ -6,6 +22,9 @@ exports.listarTickets = async (req, res) => {
     const query = `
       SELECT 
         t.*, 
+        to_char(t.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at_local,
+        to_char(t.fecha_resolucion, 'YYYY-MM-DD HH24:MI:SS') AS fecha_resolucion_local,
+        ${historialPublicoSql},
         u.nombre AS creador_nombre, 
         u.email AS creador_email,
         d.nombre AS departamento_destino_nombre,
@@ -99,11 +118,20 @@ exports.listarHistorial = async (req, res) => {
 exports.listarResueltosUsuario = async (req, res) => {
   try {
     const { rows } = await db.query(`
-      SELECT t.id, t.titulo, t.fecha_resolucion,
+            SELECT t.*,
+              to_char(t.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at_local,
+              to_char(t.fecha_resolucion, 'YYYY-MM-DD HH24:MI:SS') AS fecha_resolucion_local,
+              ${historialPublicoSql},
+              d.nombre AS departamento_destino_nombre,
+             (SELECT SUBSTRING(h.accion FROM '^Resolución: (.*)$')
+              FROM ticket_historial h
+              WHERE h.ticket_id = t.id AND h.accion LIKE 'Resolución: %'
+              ORDER BY h.created_at DESC LIMIT 1) AS detalles_resolucion,
              EXISTS (SELECT 1 FROM encuestas_satisfaccion e WHERE e.ticket_id = t.id) AS encuesta_enviada
       FROM tickets t
+      JOIN departamentos d ON d.id = t.departamento_destino_id
       WHERE t.usuario_creador_id = $1 AND t.estado = 'resuelto'
-      ORDER BY t.fecha_resolucion DESC NULLS LAST;
+      ORDER BY t.created_at DESC;
     `, [req.user.id]);
     res.json({ success: true, data: rows });
   } catch (error) {

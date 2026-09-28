@@ -187,7 +187,10 @@ exports.listarCalendario = async (req, res) => {
       FROM tickets WHERE estado <> 'resuelto'
       UNION ALL
       SELECT id, titulo, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha, 'tarea' AS tipo, estado
-      FROM tareas_it
+      FROM tareas_it t
+      WHERE t.ticket_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM tickets tk WHERE tk.id = t.ticket_id AND tk.estado = 'resuelto'
+      )
       ORDER BY fecha ASC;
     `);
     res.json({ success: true, data: rows });

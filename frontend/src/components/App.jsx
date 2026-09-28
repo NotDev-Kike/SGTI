@@ -12,6 +12,15 @@ const parseLocalDate = value => {
   return new Date(value);
 };
 
+const formatLocalDateTime = value => {
+  if (!value) return '';
+  const parts = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(value);
+  const date = parts
+    ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), Number(parts[4]), Number(parts[5]), Number(parts[6]))
+    : new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('es', { dateStyle: 'short', timeStyle: 'medium', hour12: false });
+};
+
 export default function App() {
   // Cargar usuario desde localStorage para evitar que se regrese al login al recargar
   const [currentUser, setCurrentUser] = useState(() => {
@@ -139,6 +148,12 @@ export default function App() {
     return () => window.clearInterval(refresh);
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser || currentUser.isAdmin) return undefined;
+    const refresh = window.setInterval(cargarDatosGlobales, 10000);
+    return () => window.clearInterval(refresh);
+  }, [currentUser]);
+
   const cargarDatosGlobales = () => {
     apiFetch(API_BASE_URL, currentUser?.isAdmin ? '/api/admin/tickets/todos' : '/api/tickets')
       .then(res => res.json())
@@ -158,18 +173,24 @@ export default function App() {
     }
   };
 
+  const cargarCalendario = () => {
+    apiFetch(API_BASE_URL, '/api/admin/calendario').then(res => res.json()).then(data => {
+      if (data.success) setCalendario(data.data);
+    }).catch(() => {});
+  };
+
   const cargarDatosAdministrativos = () => {
     const endpoints = [
       ['/api/admin/usuarios', setUsuarios],
       ['/api/admin/tareas', setTareas],
-      ['/api/admin/proyectos-ti', setProyectos],
-      ['/api/admin/calendario', setCalendario]
+      ['/api/admin/proyectos-ti', setProyectos]
     ];
     endpoints.forEach(([path, setter]) => {
       apiFetch(API_BASE_URL, path).then(res => res.json()).then(data => {
         if (data.success) setter(data.data);
       }).catch(() => {});
     });
+    cargarCalendario();
     apiFetch(API_BASE_URL, '/api/admin/configuraciones').then(res => res.json()).then(data => {
       if (data.success) {
         const stored = Object.fromEntries(data.data.map(item => [item.clave, item.valor === 'true']));
@@ -269,6 +290,7 @@ export default function App() {
       .then(data => {
         if (!data.success) throw new Error(data.message || 'No se pudo resolver el ticket.');
         cargarDatosGlobales();
+        cargarCalendario();
         alert('Ticket resuelto y archivado en el historial.');
       })
       .catch(error => alert(error.message));
@@ -299,10 +321,14 @@ export default function App() {
       if (!data.success) throw new Error(data.message || 'No se pudo guardar la actualización.');
       setFormSeguimientos(actual => ({ ...actual, [ticket.id]: {} }));
       cargarDatosGlobales();
+      if (formulario.resuelto) cargarCalendario();
       alert(data.message);
     }).catch(error => alert(error.message));
   };
 
+  const misTickets = currentUser && !currentUser.isAdmin
+    ? [...tickets, ...ticketsResueltos].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    : [];
   const ticketsAsignados = currentUser?.isAdmin
     ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
     : [];
@@ -464,7 +490,7 @@ export default function App() {
                 </div>
                 <div className="bg-white p-5 rounded-xl border shadow-sm">
                   <div className="text-xs text-slate-500 font-bold uppercase">Historial Resueltos</div>
-                  <div className="text-3xl font-extrabold text-emerald-600 mt-2">{historial.length}</div>
+                  <div className="text-3xl font-extrabold text-emerald-600 mt-2">{currentUser.isAdmin ? historial.length : ticketsResueltos.length}</div>
                 </div>
               </div>
               {currentUser.isAdmin && (
@@ -595,23 +621,49 @@ export default function App() {
           {/* MIS TICKETS (USUARIO BÁSICO) */}
           {activeTab === 'mis_tickets' && !currentUser.isAdmin && (
             <div className="space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Mis Tickets Creados</h2>
-              {tickets.filter(t => t.creador_email === currentUser.email || t.nombre_solicitante === currentUser.email).length === 0 ? (
+              <h2 className="text-xl font-bold text-slate-900">Historial de mis tickets</h2>
+              {misTickets.length === 0 ? (
                 <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">No has registrado tickets.</p>
               ) : (
-                tickets.filter(t => t.creador_email === currentUser.email || t.nombre_solicitante === currentUser.email).map(t => (
-                  <div key={t.id} className="bg-white border rounded-xl p-4 shadow-sm flex justify-between items-center">
-                    <div>
-                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold uppercase">{t.tipo_solicitud}</span>
-                      <h3 className="font-bold text-slate-900 mt-1">{t.titulo}</h3>
-                      <p className="text-xs text-slate-500">{t.descripcion}</p>
+                misTickets.map(t => (
+                  <article key={t.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold uppercase">{t.tipo_solicitud}</span>
+                        <h3 className="font-bold text-slate-900 mt-2">{t.titulo}</h3>
+                      </div>
+                      <span className={`text-xs px-3 py-1 rounded-full font-bold ${t.estado === 'resuelto' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{t.estado}</span>
                     </div>
-                    <span className="text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-bold">{t.estado}</span>
-                    <div className="mt-2 text-xs text-slate-600">
-                      {t.actualizacion_publica && <p>{t.causa_externa && <strong>Dependencia externa · </strong>}{t.actualizacion_publica}</p>}
-                      {t.fecha_estimada_resolucion && <p className="mt-1">Fecha estimada: {new Date(t.fecha_estimada_resolucion).toLocaleDateString()}</p>}
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{t.descripcion}</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                      {t.departamento_destino_nombre && <span>Área: {t.departamento_destino_nombre}</span>}
+                      {t.categoria && <span>Categoría: {t.categoria}</span>}
+                      {t.created_at_local && <span>Creado: {formatLocalDateTime(t.created_at_local)}</span>}
                     </div>
-                  </div>
+                    {t.actualizaciones?.length ? (
+                      <div className="border-t border-slate-200 pt-3 space-y-2">
+                        <p className="text-sm font-semibold text-slate-800">Historial de atención</p>
+                        <ol className="space-y-2">
+                          {t.actualizaciones.map((actualizacion, index) => (
+                            <li key={`${t.id}-${index}`} className="rounded bg-slate-50 p-3 text-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <strong className={actualizacion.tipo === 'Resolución' ? 'text-emerald-800' : 'text-slate-700'}>{actualizacion.tipo}</strong>
+                                <time className="text-xs text-slate-500">{formatLocalDateTime(actualizacion.fecha_hora)}</time>
+                              </div>
+                              <p className="mt-1 whitespace-pre-wrap text-slate-700">{actualizacion.mensaje}</p>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    ) : (t.detalles_resolucion || t.actualizacion_publica) ? (
+                      <div className="border-t border-slate-200 pt-3 text-sm text-slate-700">
+                        <p className="font-semibold">{t.estado === 'resuelto' ? 'Respuesta de resolución' : 'Última actualización'}</p>
+                        <p className="mt-1 whitespace-pre-wrap">{t.detalles_resolucion || t.actualizacion_publica}</p>
+                      </div>
+                    ) : null}
+                    {t.estado === 'resuelto' && t.fecha_resolucion_local && <p className="text-xs text-emerald-800">Solución registrada: {formatLocalDateTime(t.fecha_resolucion_local)}</p>}
+                    {t.estado !== 'resuelto' && t.fecha_estimada_resolucion && <p className="text-xs text-slate-600">Fecha estimada: {parseLocalDate(t.fecha_estimada_resolucion).toLocaleDateString()}</p>}
+                  </article>
                 ))
               )}
             </div>
