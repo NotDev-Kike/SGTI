@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Login from './Login';
+import ApiReference from './ApiReference';
 import { apiFetch } from '../api';
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -15,11 +16,23 @@ const parseLocalDate = value => {
 const formatLocalDateTime = value => {
   if (!value) return '';
   const parts = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(value);
-  const date = parts
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  const date = hasTimezone
+    ? new Date(value)
+    : parts
     ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), Number(parts[4]), Number(parts[5]), Number(parts[6]))
     : new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('es', { dateStyle: 'short', timeStyle: 'medium', hour12: false });
 };
+
+const etiquetaEstadoTicket = estado => ({
+  nuevo: 'Nuevo', abierto: 'Abierto', en_proceso: 'En proceso', resuelto: 'Resuelto', vencido: 'Vencido'
+}[estado] || estado || 'Sin estado');
+
+const etiquetaTipoTicket = tipo => ({
+  incidencia: 'Incidencia', problema: 'Problema', peticion_servicio: 'Petición de servicio',
+  peticion_cambio: 'Petición de cambio', chat: 'Comunicación por chat'
+}[tipo] || tipo || 'Ticket');
 
 export default function App() {
   // Cargar usuario desde localStorage para evitar que se regrese al login al recargar
@@ -30,7 +43,12 @@ export default function App() {
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [busqueda, setBusqueda] = useState('');
+  const [ticketSeleccionado, setTicketSeleccionado] = useState(null);
+  const [mensajesTicket, setMensajesTicket] = useState([]);
+  const [nuevoMensajeTicket, setNuevoMensajeTicket] = useState('');
 
   const [tickets, setTickets] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -181,10 +199,10 @@ export default function App() {
 
   const cargarDatosAdministrativos = () => {
     const endpoints = [
-      ['/api/admin/usuarios', setUsuarios],
       ['/api/admin/tareas', setTareas],
       ['/api/admin/proyectos-ti', setProyectos]
     ];
+    if (currentUser?.rol === 'gerente_it') endpoints.push(['/api/admin/usuarios', setUsuarios]);
     endpoints.forEach(([path, setter]) => {
       apiFetch(API_BASE_URL, path).then(res => res.json()).then(data => {
         if (data.success) setter(data.data);
@@ -234,6 +252,30 @@ export default function App() {
     moverTicketAdmin(ticket, ticket.estado, departamentoId, undefined, true);
   };
 
+  const abrirDetalleTicket = ticket => {
+    setTicketSeleccionado(ticket);
+    setMensajesTicket([]);
+    setNuevoMensajeTicket('');
+    apiFetch(API_BASE_URL, `/api/chat/${ticket.id}/mensajes`).then(res => res.json()).then(data => {
+      if (Array.isArray(data)) setMensajesTicket(data);
+    }).catch(() => {});
+  };
+
+  const enviarMensajeTicket = event => {
+    event.preventDefault();
+    if (!ticketSeleccionado || !nuevoMensajeTicket.trim()) return;
+    apiFetch(API_BASE_URL, `/api/chat/${ticketSeleccionado.id}/mensajes`, {
+      method: 'POST',
+      body: JSON.stringify({ mensaje: nuevoMensajeTicket.trim() })
+    }).then(res => res.json()).then(data => {
+      if (data.error) throw new Error(data.error);
+      setNuevoMensajeTicket('');
+      return apiFetch(API_BASE_URL, `/api/chat/${ticketSeleccionado.id}/mensajes`).then(res => res.json());
+    }).then(data => {
+      if (Array.isArray(data)) setMensajesTicket(data);
+    }).catch(error => alert(error.message || 'No se pudo enviar el mensaje.'));
+  };
+
   const editarTicketAdmin = () => {
     apiFetch(API_BASE_URL, `/api/admin/tickets/${ticketEnEdicion.id}/modificar`, {
       method: 'PUT',
@@ -244,6 +286,7 @@ export default function App() {
     }).then(res => res.json()).then(data => {
       if (!data.success) throw new Error(data.message || 'No se pudo editar el ticket.');
       setTicketEnEdicion(null);
+      setTicketSeleccionado(current => current ? { ...current, ...ticketEnEdicion } : current);
       cargarDatosGlobales();
     }).catch(error => alert(error.message));
   };
@@ -320,6 +363,11 @@ export default function App() {
     }).then(res => res.json()).then(data => {
       if (!data.success) throw new Error(data.message || 'No se pudo guardar la actualización.');
       setFormSeguimientos(actual => ({ ...actual, [ticket.id]: {} }));
+      setTicketSeleccionado(actual => actual?.id === ticket.id ? {
+        ...actual,
+        estado: formulario.resuelto ? 'resuelto' : 'en_proceso',
+        actualizacion_publica: formulario.mensaje.trim()
+      } : actual);
       cargarDatosGlobales();
       if (formulario.resuelto) cargarCalendario();
       alert(data.message);
@@ -329,6 +377,17 @@ export default function App() {
   const misTickets = currentUser && !currentUser.isAdmin
     ? [...tickets, ...ticketsResueltos].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     : [];
+  const filtrarTickets = lista => {
+    const termino = busqueda.trim().toLocaleLowerCase();
+    if (!termino) return lista;
+    return lista.filter(ticket => [ticket.id, ticket.titulo, ticket.descripcion, ticket.estado, ticket.creador_nombre, ticket.departamento_nombre, ticket.departamento_destino_nombre]
+      .some(valor => String(valor || '').toLocaleLowerCase().includes(termino)));
+  };
+  const etiquetasSeccion = {
+    dashboard: 'Inicio', crear_ticket: 'Crear ticket', todos_tickets: 'Tickets de todos', asignaciones: 'Asignación de tickets',
+    historial: 'Historial', usuarios: 'Gestión de usuarios', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
+    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets'
+  };
   const ticketsAsignados = currentUser?.isAdmin
     ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
     : [];
@@ -343,10 +402,10 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 flex font-sans text-slate-800">
       
       {/* BARRA LATERAL DINÁMICA */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col shadow-xl`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} transition-transform duration-300 ease-in-out flex flex-col shadow-xl`}>
         <div className="p-5 border-b border-slate-800 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-extrabold text-white tracking-wider">SGTI</h2>
+            <h2 className="text-xl font-extrabold text-white">SGTI</h2>
             <p className="text-xs text-blue-400 font-semibold">{currentUser.area}</p>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">✕</button>
@@ -357,7 +416,7 @@ export default function App() {
             onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
           >
-            📊 Dashboard General
+            Inicio
           </button>
 
           {currentUser.isAdmin ? (
@@ -366,55 +425,55 @@ export default function App() {
                 onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'crear_ticket' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                ➕ Crear Ticket
+                Crear ticket
               </button>
               <button 
                 onClick={() => { setActiveTab('todos_tickets'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'todos_tickets' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                📋 Tickets de Todos ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
+                Tickets de todos ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
               </button>
-              <button
+              {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('asignaciones'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'asignaciones' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                🎯 Asignación de tickets
-              </button>
+                Asignación de tickets
+              </button>}
               <button 
                 onClick={() => { setActiveTab('historial'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'historial' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                📁 Historial de Tickets
+                Historial de tickets
               </button>
-              <button 
+              {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'usuarios' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                👥 Gestión de Usuarios
-              </button>
+                Gestión de usuarios
+              </button>}
               <button 
                 onClick={() => { setActiveTab('calendario'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'calendario' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                📅 Calendario Interactivo
+                Calendario
               </button>
               <button 
                 onClick={() => { setActiveTab('tareas'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'tareas' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                📝 Tareas Pendientes
+                Tareas
               </button>
               <button 
                 onClick={() => { setActiveTab('proyectos'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'proyectos' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                🏗️ Proyectos de TI
+                Proyectos de IT
               </button>
               <button 
                 onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'configuracion' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                ⚙️ Configuraciones
+                Configuración
               </button>
             </>
           ) : (
@@ -423,19 +482,19 @@ export default function App() {
                 onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'crear_ticket' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                ➕ Crear Ticket
+                Crear ticket
               </button>
               <button 
                 onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'mis_tickets' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                📂 Mis Tickets
+                Mis tickets
               </button>
               <button 
                 onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'encuesta' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                ⭐ Encuesta de Satisfacción
+                Encuesta de satisfacción
               </button>
             </>
           )}
@@ -444,8 +503,9 @@ export default function App() {
             onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'chat' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
           >
-            💬 Chat Inmediato IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
+            Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
           </button>
+          {currentUser.isAdmin && <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'apis' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>Referencia de API</button>}
         </nav>
 
         <div className="p-4 border-t border-slate-800 bg-slate-950">
@@ -461,14 +521,15 @@ export default function App() {
       </aside>
 
       {/* CONTENIDO PRINCIPAL */}
-      <div className="flex-1 flex flex-col md:ml-64 min-w-0">
-        <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-40 shadow-sm">
-          <button onClick={() => setSidebarOpen(true)} className="md:hidden text-slate-700 font-bold">☰ Menú</button>
-          <div className="text-sm font-bold text-slate-700">Módulo Actual: <span className="text-blue-600 uppercase">{activeTab}</span></div>
+      <div className={`flex-1 flex flex-col min-w-0 transition-[margin] duration-300 ${sidebarCollapsed ? '' : 'md:ml-64'}`}>
+        <header className="bg-white border-b border-slate-200 min-h-16 flex flex-wrap items-center justify-between gap-3 px-6 py-3 sticky top-0 z-40 shadow-sm">
+          <button onClick={() => { if (window.innerWidth < 768) setSidebarOpen(true); else setSidebarCollapsed(!sidebarCollapsed); }} className="text-sm text-slate-700 font-semibold">{sidebarCollapsed ? 'Mostrar menú' : 'Ocultar menú'}</button>
+          <div className="text-sm font-bold text-slate-700">{etiquetasSeccion[activeTab] || 'Inicio'}</div>
+          {(activeTab === 'todos_tickets' || activeTab === 'mis_tickets' || activeTab === 'historial' || activeTab === 'asignaciones') && <input type="search" aria-label="Buscar tickets" placeholder="Buscar ticket..." value={busqueda} onChange={event => setBusqueda(event.target.value)} className="w-full sm:w-64 px-3 py-2 border border-slate-300 rounded text-sm" />}
           <div className="text-xs bg-slate-100 px-3 py-1 rounded-full font-semibold border">{currentUser.area}</div>
         </header>
 
-        <main className="p-6 flex-1 max-w-5xl w-full mx-auto space-y-6">
+        <main className={`p-6 flex-1 w-full mx-auto space-y-6 ${sidebarCollapsed ? 'max-w-7xl' : 'max-w-5xl'}`}>
           
           {/* DASHBOARD GENERAL */}
           {activeTab === 'dashboard' && (
@@ -621,151 +682,69 @@ export default function App() {
           {/* MIS TICKETS (USUARIO BÁSICO) */}
           {activeTab === 'mis_tickets' && !currentUser.isAdmin && (
             <div className="space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Historial de mis tickets</h2>
-              {misTickets.length === 0 ? (
-                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">No has registrado tickets.</p>
-              ) : (
-                misTickets.map(t => (
-                  <article key={t.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm space-y-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold uppercase">{t.tipo_solicitud}</span>
-                        <h3 className="font-bold text-slate-900 mt-2">{t.titulo}</h3>
-                      </div>
-                      <span className={`text-xs px-3 py-1 rounded-full font-bold ${t.estado === 'resuelto' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{t.estado}</span>
-                    </div>
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{t.descripcion}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                      {t.departamento_destino_nombre && <span>Área: {t.departamento_destino_nombre}</span>}
-                      {t.categoria && <span>Categoría: {t.categoria}</span>}
-                      {t.created_at_local && <span>Creado: {formatLocalDateTime(t.created_at_local)}</span>}
-                    </div>
-                    {t.actualizaciones?.length ? (
-                      <div className="border-t border-slate-200 pt-3 space-y-2">
-                        <p className="text-sm font-semibold text-slate-800">Historial de atención</p>
-                        <ol className="space-y-2">
-                          {t.actualizaciones.map((actualizacion, index) => (
-                            <li key={`${t.id}-${index}`} className="rounded bg-slate-50 p-3 text-sm">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <strong className={actualizacion.tipo === 'Resolución' ? 'text-emerald-800' : 'text-slate-700'}>{actualizacion.tipo}</strong>
-                                <time className="text-xs text-slate-500">{formatLocalDateTime(actualizacion.fecha_hora)}</time>
-                              </div>
-                              <p className="mt-1 whitespace-pre-wrap text-slate-700">{actualizacion.mensaje}</p>
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    ) : (t.detalles_resolucion || t.actualizacion_publica) ? (
-                      <div className="border-t border-slate-200 pt-3 text-sm text-slate-700">
-                        <p className="font-semibold">{t.estado === 'resuelto' ? 'Respuesta de resolución' : 'Última actualización'}</p>
-                        <p className="mt-1 whitespace-pre-wrap">{t.detalles_resolucion || t.actualizacion_publica}</p>
-                      </div>
-                    ) : null}
-                    {t.estado === 'resuelto' && t.fecha_resolucion_local && <p className="text-xs text-emerald-800">Solución registrada: {formatLocalDateTime(t.fecha_resolucion_local)}</p>}
-                    {t.estado !== 'resuelto' && t.fecha_estimada_resolucion && <p className="text-xs text-slate-600">Fecha estimada: {parseLocalDate(t.fecha_estimada_resolucion).toLocaleDateString()}</p>}
-                  </article>
-                ))
-              )}
+              <h2 className="text-xl font-bold text-slate-900">Mis tickets</h2>
+              <div className="overflow-x-auto bg-white border border-slate-200 rounded">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Ticket</th><th className="px-4 py-3">Área</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Creado</th><th className="px-4 py-3"></th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtrarTickets(misTickets).map(ticket => <tr key={ticket.id}>
+                      <td className="px-4 py-3"><span className="block text-xs text-slate-500">#{ticket.id} · {etiquetaTipoTicket(ticket.tipo_solicitud)}</span><strong className="text-slate-900">{ticket.titulo}</strong></td>
+                      <td className="px-4 py-3 text-slate-600">{ticket.departamento_destino_nombre || 'Sin área'}</td>
+                      <td className="px-4 py-3">{etiquetaEstadoTicket(ticket.estado)}</td>
+                      <td className="px-4 py-3 text-slate-600">{formatLocalDateTime(ticket.created_at_local || ticket.created_at)}</td>
+                      <td className="px-4 py-3"><button onClick={() => abrirDetalleTicket(ticket)} className="font-semibold text-blue-700 hover:underline">Ver detalle</button></td>
+                    </tr>)}
+                    {!filtrarTickets(misTickets).length && <tr><td colSpan="5" className="px-4 py-8 text-center text-slate-500">No hay tickets que coincidan con la búsqueda.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
           {/* TICKETS DE TODOS CON SEMÁFORO (ADMIN) */}
           {activeTab === 'todos_tickets' && currentUser.isAdmin && (
             <div className="space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Tickets de Todos (Semáforo de Criticidad y Fecha)</h2>
-              {tickets.length === 0 ? (
-                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">No hay tickets activos pendientes.</p>
-              ) : (
-                tickets.map(t => {
-                  const semaforo = t.semaforo_alerta || (t.fecha_limite ? (new Date(t.fecha_limite) < new Date() ? 'vencido' : 'en_plazo') : 'sin_fecha');
-                  const esVencido = semaforo === 'vencido';
-                  const semaforoClases = {
-                    vencido: 'bg-red-600 text-white',
-                    por_vencer: 'bg-amber-300 text-amber-950',
-                    en_plazo: 'bg-emerald-100 text-emerald-800',
-                    sin_fecha: 'bg-slate-200 text-slate-700'
-                  };
-                  const semaforoTexto = {
-                    vencido: 'Vencido',
-                    por_vencer: 'Por vencer',
-                    en_plazo: 'En plazo',
-                    sin_fecha: 'Sin fecha límite'
-                  };
-                  const editando = ticketEnEdicion?.id === t.id;
-                  return (
-                    <div key={t.id} className={`border rounded-2xl p-5 shadow-sm space-y-3 ${esVencido ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <span className="text-xs uppercase font-extrabold px-2 py-1 rounded bg-slate-200 text-slate-700 mr-2">{t.tipo_solicitud}</span>
-                          {editando ? <input aria-label="Título del ticket" value={ticketEnEdicion.titulo} onChange={e => setTicketEnEdicion({ ...ticketEnEdicion, titulo: e.target.value })} className="mt-1 w-full px-2 py-1 border rounded text-sm" /> : <h3 className="font-bold text-slate-900 inline">{t.titulo}</h3>}
-                        </div>
-                        <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase ${semaforoClases[semaforo]}`}>
-                          {semaforoTexto[semaforo]}
-                        </span>
-                      </div>
-                      {editando ? <textarea aria-label="Descripción del ticket" value={ticketEnEdicion.descripcion} onChange={e => setTicketEnEdicion({ ...ticketEnEdicion, descripcion: e.target.value })} className="w-full px-2 py-1 border rounded text-sm" /> : <p className="text-slate-600 text-sm">{t.descripcion}</p>}
-                      <div className="text-xs text-slate-500">Solicitante: <strong>{t.creador_nombre || t.nombre_solicitante}</strong> | Creado: {new Date(t.created_at).toLocaleDateString()} | Fecha Límite: {t.fecha_limite ? new Date(t.fecha_limite).toLocaleDateString() : 'Sin fecha'}</div>
-                      
-                      <div className="flex flex-wrap gap-2 border-t pt-3">
-                        <select aria-label="Estado del ticket" value={t.estado} onChange={e => moverTicketAdmin(t, e.target.value, t.departamento_destino_id)} className="px-3 py-2 border rounded-lg text-sm bg-white">
-                          <option value="nuevo">Nuevo</option><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option>
-                        </select>
-                        <span className="self-center text-xs text-slate-500">Área: {t.departamento_nombre} · Responsable: {t.asignado_nombre || 'Sin asignar'}</span>
-                        {editando ? <>
-                          <button onClick={editarTicketAdmin} className="bg-blue-700 text-white px-3 py-2 rounded-lg text-sm">Guardar edición</button>
-                          <button onClick={() => setTicketEnEdicion(null)} className="border px-3 py-2 rounded-lg text-sm">Cancelar</button>
-                        </> : <button onClick={() => setTicketEnEdicion({ id: t.id, titulo: t.titulo, descripcion: t.descripcion })} className="border px-3 py-2 rounded-lg text-sm">Editar ticket</button>}
-                      </div>
-                      {Number(t.asignado_a_id) === Number(currentUser.id) || currentUser.rol === 'gerente_it' ? (
-                        <div className="border-t pt-3 space-y-3">
-                          <h4 className="text-sm font-bold text-slate-800">Actualizar al solicitante</h4>
-                          <textarea rows="2" placeholder="Describa el avance, impedimento o solución..." value={formSeguimientos[t.id]?.mensaje || ''} onChange={e => actualizarFormularioSeguimiento(t.id, { mensaje: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
-                          {!formSeguimientos[t.id]?.resuelto && <div className="grid sm:grid-cols-2 gap-3">
-                            <label className="text-xs text-slate-600">Fecha estimada de solución
-                              <input type="date" value={formSeguimientos[t.id]?.fecha_estimada_resolucion || ''} onChange={e => actualizarFormularioSeguimiento(t.id, { fecha_estimada_resolucion: e.target.value })} className="mt-1 w-full px-3 py-2 border rounded-lg text-sm text-slate-800" />
-                            </label>
-                            <label className="flex items-center gap-2 self-end min-h-10 text-sm text-slate-700">
-                              <input type="checkbox" checked={Boolean(formSeguimientos[t.id]?.causa_externa)} onChange={e => actualizarFormularioSeguimiento(t.id, { causa_externa: e.target.checked })} />
-                              En espera de proveedor o servicio externo
-                            </label>
-                          </div>}
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                              <input type="checkbox" checked={Boolean(formSeguimientos[t.id]?.resuelto)} onChange={e => actualizarFormularioSeguimiento(t.id, { resuelto: e.target.checked })} />
-                              Confirmar que el ticket está resuelto
-                            </label>
-                            <button onClick={() => guardarSeguimientoTicket(t)} className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">Enviar actualización</button>
-                          </div>
-                        </div>
-                      ) : <p className="border-t pt-3 text-xs text-slate-500">La actualización y resolución corresponden al administrador responsable asignado.</p>}
-                    </div>
-                  );
-                })
-              )}
+              <h2 className="text-xl font-bold text-slate-900">Tickets de todos</h2>
+              <div className="overflow-x-auto bg-white border border-slate-200 rounded">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Ticket</th><th className="px-4 py-3">Solicitante</th><th className="px-4 py-3">Área</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Plazo</th><th className="px-4 py-3"></th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtrarTickets(tickets).map(ticket => <tr key={ticket.id}>
+                      <td className="px-4 py-3"><span className="block text-xs text-slate-500">#{ticket.id} · {ticket.tipo_solicitud}</span><strong className="text-slate-900">{ticket.titulo}</strong></td>
+                      <td className="px-4 py-3 text-slate-700">{ticket.creador_nombre || 'Solicitante'}</td>
+                      <td className="px-4 py-3 text-slate-600">{ticket.departamento_nombre || 'Sin área'}</td>
+                      <td className="px-4 py-3"><select aria-label={`Estado del ticket ${ticket.id}`} value={ticket.estado} onChange={event => moverTicketAdmin(ticket, event.target.value, currentUser.rol === 'gerente_it' ? ticket.departamento_destino_id : null)} className="px-2 py-1 border border-slate-300 rounded bg-white text-xs"><option value="nuevo">Nuevo</option><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option></select></td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{ticket.semaforo_alerta === 'vencido' ? 'Vencido' : ticket.fecha_limite ? parseLocalDate(ticket.fecha_limite).toLocaleDateString() : 'Sin fecha'}</td>
+                      <td className="px-4 py-3"><button onClick={() => abrirDetalleTicket(ticket)} className="font-semibold text-blue-700 hover:underline">Ver detalle</button></td>
+                    </tr>)}
+                    {!filtrarTickets(tickets).length && <tr><td colSpan="6" className="px-4 py-8 text-center text-slate-500">No hay tickets que coincidan con la búsqueda.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
-          {activeTab === 'asignaciones' && currentUser.isAdmin && (
+          {activeTab === 'asignaciones' && currentUser.rol === 'gerente_it' && (
             <section className="space-y-4">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Asignación de tickets</h2>
                 <p className="text-sm text-slate-500 mt-1">Elige el área; el sistema asignará al administrador responsable de esa sección.</p>
               </div>
-              {tickets.filter(ticket => ticket.estado !== 'resuelto').map(ticket => (
-                <article key={ticket.id} className="bg-white border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <h3 className="font-bold text-slate-900">{ticket.titulo}</h3>
-                    <p className="text-xs text-slate-500 mt-1">Solicitante: {ticket.creador_nombre} · Responsable actual: {ticket.asignado_nombre || 'Sin asignar'}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 shrink-0">
-                    <select aria-label={`Área para ${ticket.titulo}`} value={areaAsignacion[ticket.id] ?? ticket.departamento_destino_id} onChange={event => setAreaAsignacion(actual => ({ ...actual, [ticket.id]: Number(event.target.value) }))} className="px-3 py-2 border rounded-lg text-sm bg-white">
-                      {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
-                    </select>
-                    <button onClick={() => moverTicketPorArea(ticket, Number(areaAsignacion[ticket.id] ?? ticket.departamento_destino_id))} className="bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-semibold">{ticket.asignado_a_id ? 'Reasignar' : 'Asignar responsable'}</button>
-                  </div>
-                </article>
-              ))}
-              {!tickets.some(ticket => ticket.estado !== 'resuelto') && <p className="bg-white border rounded-xl p-6 text-center text-sm text-slate-500">No hay tickets activos para asignar.</p>}
+              <div className="overflow-x-auto bg-white border border-slate-200 rounded">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Ticket</th><th className="px-4 py-3">Solicitante</th><th className="px-4 py-3">Responsable</th><th className="px-4 py-3">Área de atención</th><th className="px-4 py-3"></th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtrarTickets(tickets.filter(ticket => ticket.estado !== 'resuelto')).map(ticket => <tr key={ticket.id}>
+                      <td className="px-4 py-3"><button onClick={() => abrirDetalleTicket(ticket)} className="text-left"><span className="block text-xs text-slate-500">#{ticket.id}</span><strong className="text-blue-800">{ticket.titulo}</strong></button></td>
+                      <td className="px-4 py-3">{ticket.creador_nombre || 'Solicitante'}</td>
+                      <td className="px-4 py-3 text-slate-600">{ticket.asignado_nombre || 'Sin asignar'}</td>
+                      <td className="px-4 py-3"><select aria-label={`Área para ${ticket.titulo}`} value={areaAsignacion[ticket.id] ?? ticket.departamento_destino_id} onChange={event => setAreaAsignacion(actual => ({ ...actual, [ticket.id]: Number(event.target.value) }))} className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">{departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}</select></td>
+                      <td className="px-4 py-3"><button onClick={() => moverTicketPorArea(ticket, Number(areaAsignacion[ticket.id] ?? ticket.departamento_destino_id))} className="whitespace-nowrap rounded bg-blue-700 px-3 py-2 text-xs font-semibold text-white">{ticket.asignado_a_id ? 'Reasignar' : 'Asignar'}</button></td>
+                    </tr>)}
+                    {!filtrarTickets(tickets.filter(ticket => ticket.estado !== 'resuelto')).length && <tr><td colSpan="5" className="px-4 py-8 text-center text-slate-500">No hay tickets pendientes para asignar.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </section>
           )}
 
@@ -774,26 +753,26 @@ export default function App() {
             <div className="space-y-4">
               <h2 className="text-xl font-bold text-slate-900">Historial de Tickets Resueltos</h2>
               <p className="text-xs text-slate-500">Los tickets resueltos se almacenan aquí para auditoría y evitar saturar el panel general de activos.</p>
-              {historial.length === 0 ? (
-                <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">El historial está vacío.</p>
-              ) : (
-                historial.map(h => (
-                  <div key={h.id} className="bg-white border rounded-xl p-4 shadow-sm flex justify-between items-center text-sm">
-                    <div>
-                      <strong className="text-slate-900">{h.titulo}</strong>
-                      <div className="text-xs text-slate-500">Creador: {h.creador_nombre || h.nombre_solicitante}</div>
-                    </div>
-                    <div className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-2 rounded-lg">
-                      Solución: {h.detalles_resolucion}
-                    </div>
-                  </div>
-                ))
-              )}
+              <div className="overflow-x-auto bg-white border border-slate-200 rounded">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Ticket</th><th className="px-4 py-3">Solicitante</th><th className="px-4 py-3">Área</th><th className="px-4 py-3">Resolución</th><th className="px-4 py-3"></th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtrarTickets(historial).map(ticket => <tr key={ticket.id}>
+                      <td className="px-4 py-3"><span className="block text-xs text-slate-500">#{ticket.id}</span><strong>{ticket.titulo}</strong></td>
+                      <td className="px-4 py-3">{ticket.creador_nombre || ticket.nombre_solicitante}</td>
+                      <td className="px-4 py-3">{ticket.departamento_destino_nombre || 'Sin área'}</td>
+                      <td className="max-w-xs truncate px-4 py-3 text-slate-600">{String(ticket.detalles_resolucion || '').replace(/^Resolución: /, '')}</td>
+                      <td className="px-4 py-3"><button onClick={() => abrirDetalleTicket(ticket)} className="font-semibold text-blue-700 hover:underline">Ver detalle</button></td>
+                    </tr>)}
+                    {!filtrarTickets(historial).length && <tr><td colSpan="5" className="px-4 py-8 text-center text-slate-500">El historial está vacío o no coincide con la búsqueda.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
           {/* GESTIÓN DE USUARIOS (RECTIFICACIÓN ADMIN) */}
-          {activeTab === 'usuarios' && currentUser.isAdmin && (
+          {activeTab === 'usuarios' && currentUser.rol === 'gerente_it' && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
               <h2 className="text-xl font-bold text-slate-900">Gestión y Rectificación de Usuarios</h2>
               <form onSubmit={event => {
@@ -899,6 +878,7 @@ export default function App() {
                 <input placeholder="Descripción" value={formTarea.descripcion} onChange={e => setFormTarea({ ...formTarea, descripcion: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <label className="text-xs font-semibold text-slate-600">Responsable
                   <select required value={formTarea.asignado_a_id || currentUser.id} onChange={e => setFormTarea({ ...formTarea, asignado_a_id: Number(e.target.value) })} className="mt-1 w-full px-3 py-2 border rounded-lg bg-white text-sm font-normal text-slate-800">
+                    {currentUser.rol !== 'gerente_it' && <option value={currentUser.id}>{currentUser.nombre}</option>}
                     {usuarios.filter(usuario => usuario.activo && ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'].includes(usuario.rol)).map(usuario => <option key={usuario.id} value={usuario.id}>{usuario.nombre}</option>)}
                   </select>
                 </label>
@@ -1040,7 +1020,86 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'apis' && currentUser.isAdmin && <ApiReference />}
+
         </main>
+        {ticketSeleccionado && <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/60 p-3 sm:p-8" onClick={() => { setTicketSeleccionado(null); setTicketEnEdicion(null); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="ticket-detail-title" className="mx-auto my-4 max-h-[92vh] max-w-3xl overflow-y-auto rounded bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+            <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b bg-white px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-500">Ticket #{ticketSeleccionado.id} · {etiquetaTipoTicket(ticketSeleccionado.tipo_solicitud)}</p>
+                <h2 id="ticket-detail-title" className="mt-1 text-xl font-bold text-slate-900">{ticketSeleccionado.titulo}</h2>
+              </div>
+              <button onClick={() => { setTicketSeleccionado(null); setTicketEnEdicion(null); }} className="shrink-0 px-3 py-1.5 border border-slate-300 rounded text-sm">Cerrar</button>
+            </header>
+            <div className="space-y-6 p-5">
+              <dl className="grid gap-3 border-b pb-4 text-sm sm:grid-cols-2">
+                <div><dt className="text-xs text-slate-500">Solicitante</dt><dd className="font-medium">{ticketSeleccionado.creador_nombre || currentUser.nombre || currentUser.email}</dd></div>
+                <div><dt className="text-xs text-slate-500">Estado</dt><dd className="font-medium">{etiquetaEstadoTicket(ticketSeleccionado.estado)}</dd></div>
+                <div><dt className="text-xs text-slate-500">Área asignada</dt><dd className="font-medium">{ticketSeleccionado.departamento_nombre || ticketSeleccionado.departamento_destino_nombre || 'Sin área'}</dd></div>
+                <div><dt className="text-xs text-slate-500">Responsable</dt><dd className="font-medium">{ticketSeleccionado.asignado_nombre || 'Sin asignar'}</dd></div>
+                <div><dt className="text-xs text-slate-500">Categoría</dt><dd className="font-medium">{ticketSeleccionado.categoria || 'Sin categoría'}</dd></div>
+                <div><dt className="text-xs text-slate-500">Fecha de creación</dt><dd className="font-medium">{formatLocalDateTime(ticketSeleccionado.created_at_local || ticketSeleccionado.created_at) || 'Sin fecha'}</dd></div>
+                <div><dt className="text-xs text-slate-500">Fecha límite</dt><dd className="font-medium">{ticketSeleccionado.fecha_limite ? parseLocalDate(ticketSeleccionado.fecha_limite).toLocaleDateString() : 'Sin fecha límite'}</dd></div>
+              </dl>
+
+              <section className="space-y-2">
+                <h3 className="font-semibold text-slate-900">Indicaciones del ticket</h3>
+                {ticketEnEdicion?.id === ticketSeleccionado.id
+                  ? <textarea aria-label="Descripción del ticket" rows="5" value={ticketEnEdicion.descripcion} onChange={event => setTicketEnEdicion({ ...ticketEnEdicion, descripcion: event.target.value })} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+                  : <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{ticketSeleccionado.descripcion}</p>}
+                {ticketEnEdicion?.id === ticketSeleccionado.id
+                  ? <input aria-label="Título del ticket" value={ticketEnEdicion.titulo} onChange={event => setTicketEnEdicion({ ...ticketEnEdicion, titulo: event.target.value })} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+                  : null}
+                {currentUser.isAdmin && <div className="flex flex-wrap gap-2">
+                  {ticketEnEdicion?.id === ticketSeleccionado.id ? <>
+                    <button onClick={editarTicketAdmin} className="rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white">Guardar cambios</button>
+                    <button onClick={() => setTicketEnEdicion(null)} className="rounded border px-3 py-2 text-sm">Cancelar</button>
+                  </> : <button onClick={() => setTicketEnEdicion({ id: ticketSeleccionado.id, titulo: ticketSeleccionado.titulo, descripcion: ticketSeleccionado.descripcion })} className="rounded border border-slate-300 px-3 py-2 text-sm">Editar indicaciones</button>}
+                </div>}
+              </section>
+
+              {(ticketSeleccionado.actualizaciones?.length > 0 || ticketSeleccionado.actualizacion_publica || ticketSeleccionado.detalles_resolucion) && <section className="space-y-2 border-t pt-4">
+                <h3 className="font-semibold text-slate-900">Historial de atención</h3>
+                {ticketSeleccionado.actualizaciones?.length ? <ol className="space-y-2">{ticketSeleccionado.actualizaciones.map((actualizacion, index) => <li key={`${ticketSeleccionado.id}-${index}`} className="border-l-2 border-blue-300 bg-slate-50 px-3 py-2 text-sm">
+                  <div className="flex flex-wrap justify-between gap-2"><strong>{actualizacion.tipo}</strong><time className="text-xs text-slate-500">{formatLocalDateTime(actualizacion.fecha_hora)}</time></div>
+                  <p className="mt-1 whitespace-pre-wrap text-slate-700">{actualizacion.mensaje}</p>
+                </li>)}</ol> : <p className="whitespace-pre-wrap text-sm text-slate-700">{ticketSeleccionado.detalles_resolucion || ticketSeleccionado.actualizacion_publica}</p>}
+              </section>}
+
+              {currentUser.isAdmin && (Number(ticketSeleccionado.asignado_a_id) === Number(currentUser.id) || currentUser.rol === 'gerente_it') && ticketSeleccionado.estado !== 'resuelto' && <section className="space-y-3 border-t pt-4">
+                <h3 className="font-semibold text-slate-900">Enviar avance al solicitante</h3>
+                <textarea rows="3" placeholder="Describa el avance, impedimento o solución..." value={formSeguimientos[ticketSeleccionado.id]?.mensaje || ''} onChange={event => actualizarFormularioSeguimiento(ticketSeleccionado.id, { mensaje: event.target.value })} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+                {!formSeguimientos[ticketSeleccionado.id]?.resuelto && <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs text-slate-600">Fecha estimada de solución<input type="date" value={formSeguimientos[ticketSeleccionado.id]?.fecha_estimada_resolucion || ''} onChange={event => actualizarFormularioSeguimiento(ticketSeleccionado.id, { fecha_estimada_resolucion: event.target.value })} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-800" /></label>
+                  <label className="flex items-center gap-2 self-end text-sm text-slate-700"><input type="checkbox" checked={Boolean(formSeguimientos[ticketSeleccionado.id]?.causa_externa)} onChange={event => actualizarFormularioSeguimiento(ticketSeleccionado.id, { causa_externa: event.target.checked })} />En espera de proveedor o servicio externo</label>
+                </div>}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={Boolean(formSeguimientos[ticketSeleccionado.id]?.resuelto)} onChange={event => actualizarFormularioSeguimiento(ticketSeleccionado.id, { resuelto: event.target.checked })} />Marcar como resuelto</label>
+                  <button onClick={() => guardarSeguimientoTicket(ticketSeleccionado)} className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white">Enviar actualización</button>
+                </div>
+              </section>}
+
+              {(!currentUser.isAdmin || currentUser.rol === 'gerente_it' || Number(ticketSeleccionado.asignado_a_id) === Number(currentUser.id)) && <section className="space-y-3 border-t pt-4">
+                <div>
+                  <h3 className="font-semibold text-slate-900">Mensajes del ticket #{ticketSeleccionado.id}</h3>
+                  <p className="text-xs text-slate-500">Las aclaraciones y respuestas quedan vinculadas a este ticket.</p>
+                </div>
+                <div className="max-h-64 space-y-2 overflow-y-auto bg-slate-50 p-3">
+                  {mensajesTicket.map(mensaje => <article key={mensaje.id} className="border-b border-slate-200 pb-2 last:border-0">
+                    <div className="flex flex-wrap justify-between gap-2 text-xs"><strong>{mensaje.remitente_nombre || 'Usuario'}</strong><time className="text-slate-500">{formatLocalDateTime(mensaje.created_at_iso || mensaje.created_at)}</time></div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{mensaje.mensaje}</p>
+                  </article>)}
+                  {!mensajesTicket.length && <p className="text-sm text-slate-500">Todavía no hay mensajes en este ticket.</p>}
+                </div>
+                <form onSubmit={enviarMensajeTicket} className="flex flex-col gap-2 sm:flex-row">
+                  <input value={nuevoMensajeTicket} onChange={event => setNuevoMensajeTicket(event.target.value)} placeholder={currentUser.isAdmin ? 'Escriba una respuesta para este ticket...' : 'Agregue un dato que faltó al crear el ticket...'} className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm" />
+                  <button disabled={!nuevoMensajeTicket.trim()} className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">Enviar mensaje</button>
+                </form>
+              </section>}
+            </div>
+          </section>
+        </div>}
       </div>
     </div>
   );

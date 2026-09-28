@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/adminYUsuarioController');
+const { requireManager } = require('../middleware/auth');
 
 // Usuarios y Rectificaciones
-router.get('/usuarios', controller.listarUsuarios);
-router.post('/usuarios', controller.crearModificarUsuario);
-router.delete('/usuarios/:id', controller.eliminarUsuario);
+router.get('/usuarios', requireManager, controller.listarUsuarios);
+router.post('/usuarios', requireManager, controller.crearModificarUsuario);
+router.delete('/usuarios/:id', requireManager, controller.eliminarUsuario);
 
 // Tickets de todos (Semáforo y control Admin)
 router.get('/tickets/eficiencia', controller.listarEficienciaAdmins);

@@ -204,7 +204,9 @@ exports.listarTicketsAdmin = async (req, res) => {
   try {
     // Lista tickets activos (no resueltos) ordenados por fecha de creación y semáforo crítico
     const query = `
-      SELECT t.*, u.nombre as creador_nombre, d.nombre as departamento_nombre,
+      SELECT t.*,
+      to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at_local,
+      u.nombre as creador_nombre, d.nombre as departamento_nombre,
       u_asig.nombre AS asignado_nombre,
       CASE
         WHEN t.fecha_limite IS NULL THEN 'sin_fecha'
@@ -254,6 +256,9 @@ exports.listarEficienciaAdmins = async (req, res) => {
 exports.moverOResolverTicket = async (req, res) => {
   const { id } = req.params;
   const { nuevo_estado, nuevo_departamento_id, titulo, descripcion, categoria, tipo_solicitud, prioridad, asignado_a_id, auto_asignar, accion_historial } = req.body;
+  if (req.user.rol !== 'gerente_it' && (nuevo_departamento_id !== undefined && nuevo_departamento_id !== null || asignado_a_id !== undefined || auto_asignar)) {
+    return res.status(403).json({ success: false, message: 'Solo el gerente de IT puede reasignar tickets.' });
+  }
   const estadosPermitidos = ['nuevo', 'abierto', 'en_proceso', 'resuelto', 'vencido'];
   if (nuevo_estado && !estadosPermitidos.includes(nuevo_estado)) {
     return res.status(400).json({ success: false, message: `Estado inválido. Use: ${estadosPermitidos.join(', ')}.` });

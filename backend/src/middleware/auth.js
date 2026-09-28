@@ -60,4 +60,11 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, requireAdmin, signToken };
+function requireManager(req, res, next) {
+  if (req.user?.rol !== 'gerente_it') {
+    return res.status(403).json({ success: false, message: 'Esta acción está reservada al gerente de IT.' });
+  }
+  next();
+}
+
+module.exports = { authenticate, requireAdmin, requireManager, signToken };

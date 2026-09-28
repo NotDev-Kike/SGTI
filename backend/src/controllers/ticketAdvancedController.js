@@ -8,7 +8,7 @@ const historialPublicoSql = `
         ELSE 'Actualización'
       END,
       'mensaje', SUBSTRING(h.accion FROM '^[^:]+: (.*)$'),
-      'fecha_hora', to_char(h.created_at, 'YYYY-MM-DD HH24:MI:SS')
+      'fecha_hora', to_char(h.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
     ) ORDER BY h.created_at ASC)
     FROM ticket_historial h
     WHERE h.ticket_id = t.id
@@ -22,8 +22,8 @@ exports.listarTickets = async (req, res) => {
     const query = `
       SELECT 
         t.*, 
-        to_char(t.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at_local,
-        to_char(t.fecha_resolucion, 'YYYY-MM-DD HH24:MI:SS') AS fecha_resolucion_local,
+        to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at_local,
+        to_char(t.fecha_resolucion AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS fecha_resolucion_local,
         ${historialPublicoSql},
         u.nombre AS creador_nombre, 
         u.email AS creador_email,
@@ -96,7 +96,9 @@ exports.crearTicket = async (req, res) => {
 exports.listarHistorial = async (req, res) => {
   try {
     const query = `
-            SELECT t.*, u.nombre AS creador_nombre, u.email AS creador_email,
+            SELECT t.*,
+              to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at_local,
+              u.nombre AS creador_nombre, u.email AS creador_email,
               d.nombre AS departamento_destino_nombre,
               (SELECT h.accion FROM ticket_historial h
           WHERE h.ticket_id = t.id AND h.accion LIKE 'Resolución: %'
@@ -119,8 +121,8 @@ exports.listarResueltosUsuario = async (req, res) => {
   try {
     const { rows } = await db.query(`
             SELECT t.*,
-              to_char(t.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at_local,
-              to_char(t.fecha_resolucion, 'YYYY-MM-DD HH24:MI:SS') AS fecha_resolucion_local,
+              to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at_local,
+              to_char(t.fecha_resolucion AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS fecha_resolucion_local,
               ${historialPublicoSql},
               d.nombre AS departamento_destino_nombre,
              (SELECT SUBSTRING(h.accion FROM '^Resolución: (.*)$')
@@ -231,10 +233,12 @@ exports.enviarMensaje = async (req, res) => {
   const { mensaje } = req.body;
 
   try {
-    const ticket = await db.query('SELECT usuario_creador_id FROM tickets WHERE id = $1', [id]);
+    const ticket = await db.query('SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id = $1', [id]);
     const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
     if (!ticket.rowCount) return res.status(404).json({ success: false, message: 'Ticket no encontrado.' });
-    if (!adminRoles.includes(req.user.rol) && Number(ticket.rows[0].usuario_creador_id) !== Number(req.user.id)) {
+    const esSolicitante = Number(ticket.rows[0].usuario_creador_id) === Number(req.user.id);
+    const esResponsable = Number(ticket.rows[0].asignado_a_id) === Number(req.user.id);
+    if (!esSolicitante && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !esResponsable)) {
       return res.status(403).json({ success: false, message: 'No tiene acceso a esta conversación.' });
     }
     if (!mensaje?.trim()) return res.status(400).json({ success: false, message: 'El mensaje no puede estar vacío.' });
