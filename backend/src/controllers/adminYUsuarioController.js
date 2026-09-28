@@ -354,7 +354,7 @@ exports.actualizarSeguimientoTicket = async (req, res) => {
       UPDATE tickets
       SET estado = CASE WHEN $1 THEN 'resuelto' ELSE 'en_proceso' END,
           fecha_resolucion = CASE WHEN $1 THEN CURRENT_TIMESTAMP ELSE NULL END,
-          fecha_estimada_resolucion = CASE WHEN $1 THEN NULL ELSE $2 END,
+          fecha_estimada_resolucion = CASE WHEN $1 THEN NULL ELSE $2::timestamp END,
           causa_externa = CASE WHEN $1 THEN FALSE ELSE $3 END,
           actualizacion_publica = $4,
           updated_at = CURRENT_TIMESTAMP
