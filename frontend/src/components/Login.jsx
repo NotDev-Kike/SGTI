@@ -58,10 +58,10 @@ export default function Login({ onLogin, apiBaseUrl }) {
             </div>
           )}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1 uppercase tracking-wider">Correo Institucional / Personal</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1 uppercase tracking-wider">Correo electrónico</label>
             <input 
               type="email"
-              placeholder="ej. infra@sgti.com o usuario@sgti.com"
+              placeholder="Ingrese su correo electrónico"
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
@@ -98,12 +98,6 @@ export default function Login({ onLogin, apiBaseUrl }) {
           {isRegistering ? 'Ya tengo cuenta' : 'Crear una cuenta de usuario'}
         </button>
 
-        {!isRegistering && <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-400 space-y-1">
-          <p className="font-semibold text-slate-600">Accesos por correo:</p>
-          <p>• Gerencia: arnold@sgti.com</p>
-          <p>• Infraestructura: infra@sgti.com</p>
-          <p>• GPS: erick@sgti.com | Desarrollo: luis@sgti.com</p>
-        </div>}
       </div>
     </div>
   );

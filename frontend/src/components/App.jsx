@@ -4,6 +4,14 @@ import { apiFetch } from '../api';
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
 
+const parseLocalDate = value => {
+  if (typeof value === 'string') {
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.\d{3})?Z)?$/.exec(value);
+    if (dateOnly) return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  return new Date(value);
+};
+
 export default function App() {
   // Cargar usuario desde localStorage para evitar que se regrese al login al recargar
   const [currentUser, setCurrentUser] = useState(() => {
@@ -19,6 +27,7 @@ export default function App() {
   const [historial, setHistorial] = useState([]);
   const [ticketsResueltos, setTicketsResueltos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
+  const [eficienciaAdmins, setEficienciaAdmins] = useState([]);
   const [tareas, setTareas] = useState([]);
   const [proyectos, setProyectos] = useState([]);
   const [calendario, setCalendario] = useState([]);
@@ -28,6 +37,8 @@ export default function App() {
   const [chatDestinatario, setChatDestinatario] = useState('');
   const [chatError, setChatError] = useState('');
   const [ticketEnEdicion, setTicketEnEdicion] = useState(null);
+  const [areaAsignacion, setAreaAsignacion] = useState({});
+  const [formSeguimientos, setFormSeguimientos] = useState({});
   const [mesCalendario, setMesCalendario] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
   // Estados de formularios
@@ -42,7 +53,7 @@ export default function App() {
 
   const [resolucionTextos, setResolucionTextos] = useState({});
   const [nuevoChat, setNuevoChat] = useState('');
-  const [formUsuario, setFormUsuario] = useState({ id: null, nombre: '', email: '', password: '', departamento_id: 1, activo: true });
+  const [formUsuario, setFormUsuario] = useState({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: 1, activo: true });
   const [formTarea, setFormTarea] = useState({ id: null, titulo: '', descripcion: '', fecha_limite: '', estado: 'pendiente' });
   const [formProyecto, setFormProyecto] = useState({ id: null, titulo: '', descripcion: '', estado: 'planificacion' });
   const [formEncuesta, setFormEncuesta] = useState({ ticket_id: '', calificacion: 5, comentario: '' });
@@ -63,11 +74,6 @@ export default function App() {
 
     const cargarConversacion = () => {
       if (currentUser.isAdmin) {
-        const inbox = apiFetch(API_BASE_URL, '/api/chat/directo').then(res => res.json()).then(data => {
-          if (!data.success) throw new Error(data.message);
-          setConversaciones(data.data);
-          setChatError('');
-        }).catch(error => setChatError(error.message || 'Chat no disponible.'));
         if (chatDestinatario) {
           apiFetch(API_BASE_URL, `/api/chat/directo?usuario_id=${encodeURIComponent(chatDestinatario)}`).then(res => res.json()).then(data => {
             if (data.success) setChatMensajes(data.data);
@@ -75,7 +81,7 @@ export default function App() {
         } else {
           setChatMensajes([]);
         }
-        return inbox;
+        return undefined;
       }
 
       apiFetch(API_BASE_URL, '/api/chat/directo/admins').then(res => res.json()).then(data => {
@@ -96,6 +102,26 @@ export default function App() {
     const refresh = window.setInterval(cargarConversacion, 5000);
     return () => window.clearInterval(refresh);
   }, [activeTab, currentUser, chatDestinatario]);
+
+  useEffect(() => {
+    if (!currentUser?.isAdmin) return undefined;
+
+    const cargarAvisosAdmin = () => {
+      apiFetch(API_BASE_URL, '/api/admin/tickets/todos').then(res => res.json()).then(data => {
+        if (data.success) setTickets(data.data);
+      }).catch(() => {});
+      apiFetch(API_BASE_URL, '/api/chat/directo').then(res => res.json()).then(data => {
+        if (data.success) setConversaciones(data.data);
+      }).catch(() => {});
+      apiFetch(API_BASE_URL, '/api/admin/tickets/eficiencia').then(res => res.json()).then(data => {
+        if (data.success) setEficienciaAdmins(data.data);
+      }).catch(() => {});
+    };
+
+    cargarAvisosAdmin();
+    const refresh = window.setInterval(cargarAvisosAdmin, 10000);
+    return () => window.clearInterval(refresh);
+  }, [currentUser]);
 
   const cargarDatosGlobales = () => {
     apiFetch(API_BASE_URL, currentUser?.isAdmin ? '/api/admin/tickets/todos' : '/api/tickets')
@@ -146,18 +172,29 @@ export default function App() {
     }).catch(error => alert(error.message));
   };
 
-  const moverTicketAdmin = (ticket, nuevo_estado, nuevo_departamento_id) => {
+  const moverTicketAdmin = (ticket, nuevo_estado, nuevo_departamento_id, asignado_a_id, auto_asignar = false) => {
+    const payload = {
+      nuevo_estado,
+      nuevo_departamento_id,
+      auto_asignar,
+      accion_historial: auto_asignar
+        ? `Asignó automáticamente al responsable del área ${nuevo_departamento_id}`
+        : asignado_a_id
+        ? `Asignó el ticket al administrador ID: ${asignado_a_id}`
+        : `Actualizó estado a ${nuevo_estado} y área a ${nuevo_departamento_id}`
+    };
+    if (asignado_a_id !== undefined) payload.asignado_a_id = asignado_a_id;
     apiFetch(API_BASE_URL, `/api/admin/tickets/${ticket.id}/modificar`, {
       method: 'PUT',
-      body: JSON.stringify({
-        nuevo_estado,
-        nuevo_departamento_id,
-        accion_historial: `Actualizó estado a ${nuevo_estado} y área a ${nuevo_departamento_id}`
-      })
+      body: JSON.stringify(payload)
     }).then(res => res.json()).then(data => {
       if (!data.success) throw new Error(data.message || 'No se pudo actualizar el ticket.');
       cargarDatosGlobales();
     }).catch(error => alert(error.message));
+  };
+
+  const moverTicketPorArea = (ticket, departamentoId) => {
+    moverTicketAdmin(ticket, ticket.estado, departamentoId, undefined, true);
   };
 
   const editarTicketAdmin = () => {
@@ -221,6 +258,41 @@ export default function App() {
       .catch(error => alert(error.message));
   };
 
+  const actualizarFormularioSeguimiento = (ticketId, cambios) => {
+    setFormSeguimientos(actual => ({
+      ...actual,
+      [ticketId]: { ...actual[ticketId], ...cambios }
+    }));
+  };
+
+  const guardarSeguimientoTicket = ticket => {
+    const formulario = formSeguimientos[ticket.id] || {};
+    if (!formulario.mensaje?.trim()) {
+      alert('Escriba una actualización para el solicitante.');
+      return;
+    }
+    apiFetch(API_BASE_URL, `/api/admin/tickets/${ticket.id}/seguimiento`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        resuelto: Boolean(formulario.resuelto),
+        fecha_estimada_resolucion: formulario.resuelto ? null : formulario.fecha_estimada_resolucion || null,
+        causa_externa: formulario.resuelto ? false : Boolean(formulario.causa_externa),
+        mensaje: formulario.mensaje.trim()
+      })
+    }).then(res => res.json()).then(data => {
+      if (!data.success) throw new Error(data.message || 'No se pudo guardar la actualización.');
+      setFormSeguimientos(actual => ({ ...actual, [ticket.id]: {} }));
+      cargarDatosGlobales();
+      alert(data.message);
+    }).catch(error => alert(error.message));
+  };
+
+  const ticketsAsignados = currentUser?.isAdmin
+    ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
+    : [];
+  const mensajesPendientes = currentUser?.isAdmin
+    ? conversaciones.reduce((total, conversacion) => total + Number(conversacion.pendientes || 0), 0)
+    : 0;
   if (!currentUser) {
     return <Login onLogin={handleLoginSuccess} apiBaseUrl={API_BASE_URL} />;
   }
@@ -239,7 +311,7 @@ export default function App() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
-          <button 
+          <button
             onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
           >
@@ -258,7 +330,13 @@ export default function App() {
                 onClick={() => { setActiveTab('todos_tickets'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'todos_tickets' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
-                📋 Tickets de Todos ({tickets.length})
+                📋 Tickets de Todos ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
+              </button>
+              <button
+                onClick={() => { setActiveTab('asignaciones'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'asignaciones' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >
+                🎯 Asignación de tickets
               </button>
               <button 
                 onClick={() => { setActiveTab('historial'); setSidebarOpen(false); }}
@@ -324,7 +402,7 @@ export default function App() {
             onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'chat' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
           >
-            💬 Chat Inmediato IT
+            💬 Chat Inmediato IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
           </button>
         </nav>
 
@@ -363,9 +441,9 @@ export default function App() {
                   <div className="text-3xl font-extrabold text-blue-600 mt-2">{tickets.length}</div>
                 </div>
                 <div className="bg-white p-5 rounded-xl border shadow-sm">
-                  <div className="text-xs text-slate-500 font-bold uppercase">Estado Crítico / Semáforo</div>
+                  <div className="text-xs text-slate-500 font-bold uppercase">Tickets vencidos</div>
                   <div className="text-3xl font-extrabold text-red-600 mt-2">
-                    {tickets.filter(t => t.prioridad === 'critica').length}
+                    {tickets.filter(t => t.semaforo_alerta === 'vencido').length}
                   </div>
                 </div>
                 <div className="bg-white p-5 rounded-xl border shadow-sm">
@@ -373,6 +451,51 @@ export default function App() {
                   <div className="text-3xl font-extrabold text-emerald-600 mt-2">{historial.length}</div>
                 </div>
               </div>
+              {currentUser.isAdmin && (
+                <section className="bg-white border rounded-xl p-5 space-y-3">
+                  <div>
+                    <h2 className="font-bold text-slate-900">Resolución por responsable</h2>
+                    <p className="text-xs text-slate-500 mt-1">Resumen histórico de tickets asignados; es un dato de seguimiento, no un ranking.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[620px] text-left text-sm">
+                      <thead className="border-b text-xs uppercase text-slate-500">
+                        <tr><th className="py-2 pr-4">Responsable</th><th className="py-2 px-3 text-right">Resueltos</th><th className="py-2 px-3 text-right">Pendientes</th><th className="py-2 px-3 text-right">Vencidos</th><th className="py-2 pl-3 text-right">Tasa de resolución</th></tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {eficienciaAdmins.map(admin => (
+                          <tr key={admin.id}>
+                            <td className="py-3 pr-4"><strong>{admin.nombre}</strong><span className="block text-xs text-slate-500">{admin.departamento_nombre || 'Sin área'} · {admin.total_asignados} asignados</span></td>
+                            <td className="py-3 px-3 text-right font-semibold text-emerald-700">{admin.resueltos}</td>
+                            <td className="py-3 px-3 text-right">{admin.pendientes}</td>
+                            <td className="py-3 px-3 text-right text-red-700">{admin.vencidos}</td>
+                            <td className="py-3 pl-3 text-right font-semibold">{admin.total_asignados ? `${admin.tasa_resolucion}%` : '—'}</td>
+                          </tr>
+                        ))}
+                        {!eficienciaAdmins.length && <tr><td colSpan="5" className="py-4 text-center text-slate-500">No hay métricas disponibles.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+              {currentUser.isAdmin && (
+                <section className="bg-white border rounded-xl p-5 space-y-4" aria-label="Avisos para este administrador">
+                  <h2 className="font-bold text-slate-900">Avisos para usted</h2>
+                  {ticketsAsignados.map(ticket => (
+                    <button key={`ticket-${ticket.id}`} onClick={() => setActiveTab('todos_tickets')} className="block w-full text-left border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm">
+                      <strong>Ticket asignado:</strong> {ticket.titulo}
+                      <span className="block text-xs text-slate-600">De {ticket.creador_nombre || 'solicitante'} · {ticket.departamento_nombre}</span>
+                    </button>
+                  ))}
+                  {conversaciones.filter(conversacion => Number(conversacion.pendientes) > 0).map(conversacion => (
+                    <button key={`mensaje-${conversacion.usuario_id}`} onClick={() => { setChatDestinatario(String(conversacion.usuario_id)); setActiveTab('chat'); }} className="block w-full text-left border-l-4 border-red-500 bg-red-50 px-3 py-2 text-sm">
+                      <strong>Mensaje nuevo de {conversacion.usuario_nombre}</strong>
+                      <span className="block text-xs text-slate-600">{conversacion.ultimo_mensaje}</span>
+                    </button>
+                  ))}
+                  {!ticketsAsignados.length && !mensajesPendientes && <p className="text-sm text-slate-500">No tiene tickets asignados ni mensajes nuevos.</p>}
+                </section>
+              )}
             </div>
           )}
 
@@ -468,7 +591,11 @@ export default function App() {
                       <h3 className="font-bold text-slate-900 mt-1">{t.titulo}</h3>
                       <p className="text-xs text-slate-500">{t.descripcion}</p>
                     </div>
-                    <span className="text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-bold">Activo</span>
+                    <span className="text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-bold">{t.estado}</span>
+                    <div className="mt-2 text-xs text-slate-600">
+                      {t.actualizacion_publica && <p>{t.causa_externa && <strong>Dependencia externa · </strong>}{t.actualizacion_publica}</p>}
+                      {t.fecha_estimada_resolucion && <p className="mt-1">Fecha estimada: {new Date(t.fecha_estimada_resolucion).toLocaleDateString()}</p>}
+                    </div>
                   </div>
                 ))
               )}
@@ -483,17 +610,30 @@ export default function App() {
                 <p className="text-slate-500 italic bg-white p-6 rounded-xl border text-center">No hay tickets activos pendientes.</p>
               ) : (
                 tickets.map(t => {
-                  const esCritico = t.prioridad === 'critica' || new Date(t.fecha_limite) < new Date();
+                  const semaforo = t.semaforo_alerta || (t.fecha_limite ? (new Date(t.fecha_limite) < new Date() ? 'vencido' : 'en_plazo') : 'sin_fecha');
+                  const esVencido = semaforo === 'vencido';
+                  const semaforoClases = {
+                    vencido: 'bg-red-600 text-white',
+                    por_vencer: 'bg-amber-300 text-amber-950',
+                    en_plazo: 'bg-emerald-100 text-emerald-800',
+                    sin_fecha: 'bg-slate-200 text-slate-700'
+                  };
+                  const semaforoTexto = {
+                    vencido: 'Vencido',
+                    por_vencer: 'Por vencer',
+                    en_plazo: 'En plazo',
+                    sin_fecha: 'Sin fecha límite'
+                  };
                   const editando = ticketEnEdicion?.id === t.id;
                   return (
-                    <div key={t.id} className={`border rounded-2xl p-5 shadow-sm space-y-3 ${esCritico ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
+                    <div key={t.id} className={`border rounded-2xl p-5 shadow-sm space-y-3 ${esVencido ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
                       <div className="flex justify-between items-center">
                         <div>
                           <span className="text-xs uppercase font-extrabold px-2 py-1 rounded bg-slate-200 text-slate-700 mr-2">{t.tipo_solicitud}</span>
                           {editando ? <input aria-label="Título del ticket" value={ticketEnEdicion.titulo} onChange={e => setTicketEnEdicion({ ...ticketEnEdicion, titulo: e.target.value })} className="mt-1 w-full px-2 py-1 border rounded text-sm" /> : <h3 className="font-bold text-slate-900 inline">{t.titulo}</h3>}
                         </div>
-                        <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase ${esCritico ? 'bg-red-600 text-white animate-pulse' : 'bg-amber-100 text-amber-800'}`}>
-                          {esCritico ? '🔴 CRÍTICO / VENCIDO' : '🟡 En Plazo'}
+                        <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase ${semaforoClases[semaforo]}`}>
+                          {semaforoTexto[semaforo]}
                         </span>
                       </div>
                       {editando ? <textarea aria-label="Descripción del ticket" value={ticketEnEdicion.descripcion} onChange={e => setTicketEnEdicion({ ...ticketEnEdicion, descripcion: e.target.value })} className="w-full px-2 py-1 border rounded text-sm" /> : <p className="text-slate-600 text-sm">{t.descripcion}</p>}
@@ -501,37 +641,65 @@ export default function App() {
                       
                       <div className="flex flex-wrap gap-2 border-t pt-3">
                         <select aria-label="Estado del ticket" value={t.estado} onChange={e => moverTicketAdmin(t, e.target.value, t.departamento_destino_id)} className="px-3 py-2 border rounded-lg text-sm bg-white">
-                          <option value="nuevo">Nuevo</option><option value="en_proceso">En proceso</option><option value="pendiente">Pendiente</option>
+                          <option value="nuevo">Nuevo</option><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option>
                         </select>
-                        <select aria-label="Área asignada" value={t.departamento_destino_id} onChange={e => moverTicketAdmin(t, t.estado, Number(e.target.value))} className="px-3 py-2 border rounded-lg text-sm bg-white">
-                          <option value="1">Infraestructura</option><option value="2">Desarrollo</option><option value="3">GPS</option><option value="4">Gerencia</option>
-                        </select>
+                        <span className="self-center text-xs text-slate-500">Área: {t.departamento_nombre} · Responsable: {t.asignado_nombre || 'Sin asignar'}</span>
                         {editando ? <>
-                          <select aria-label="Prioridad" value={ticketEnEdicion.prioridad} onChange={e => setTicketEnEdicion({ ...ticketEnEdicion, prioridad: e.target.value })} className="px-3 py-2 border rounded-lg text-sm bg-white"><option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option><option value="critica">Crítica</option></select>
                           <button onClick={editarTicketAdmin} className="bg-blue-700 text-white px-3 py-2 rounded-lg text-sm">Guardar edición</button>
                           <button onClick={() => setTicketEnEdicion(null)} className="border px-3 py-2 rounded-lg text-sm">Cancelar</button>
-                        </> : <button onClick={() => setTicketEnEdicion({ id: t.id, titulo: t.titulo, descripcion: t.descripcion, prioridad: t.prioridad || 'media' })} className="border px-3 py-2 rounded-lg text-sm">Editar ticket</button>}
+                        </> : <button onClick={() => setTicketEnEdicion({ id: t.id, titulo: t.titulo, descripcion: t.descripcion })} className="border px-3 py-2 rounded-lg text-sm">Editar ticket</button>}
                       </div>
-                      <div className="flex gap-2 pt-2 border-t">
-                        <input 
-                          type="text"
-                          placeholder="Nota de resolución del admin..." 
-                          value={resolucionTextos[t.id] || ''}
-                          onChange={e => setResolucionTextos({...resolucionTextos, [t.id]: e.target.value})} 
-                          className="flex-1 px-3 py-2 border rounded-lg text-sm bg-white" 
-                        />
-                        <button 
-                          onClick={() => resolverTicketAdmin(t.id)} 
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-semibold text-sm shadow-sm"
-                        >
-                          Resolver y Archivar
-                        </button>
-                      </div>
+                      {Number(t.asignado_a_id) === Number(currentUser.id) || currentUser.rol === 'gerente_it' ? (
+                        <div className="border-t pt-3 space-y-3">
+                          <h4 className="text-sm font-bold text-slate-800">Actualizar al solicitante</h4>
+                          <textarea rows="2" placeholder="Describa el avance, impedimento o solución..." value={formSeguimientos[t.id]?.mensaje || ''} onChange={e => actualizarFormularioSeguimiento(t.id, { mensaje: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                          {!formSeguimientos[t.id]?.resuelto && <div className="grid sm:grid-cols-2 gap-3">
+                            <label className="text-xs text-slate-600">Fecha estimada de solución
+                              <input type="date" value={formSeguimientos[t.id]?.fecha_estimada_resolucion || ''} onChange={e => actualizarFormularioSeguimiento(t.id, { fecha_estimada_resolucion: e.target.value })} className="mt-1 w-full px-3 py-2 border rounded-lg text-sm text-slate-800" />
+                            </label>
+                            <label className="flex items-center gap-2 self-end min-h-10 text-sm text-slate-700">
+                              <input type="checkbox" checked={Boolean(formSeguimientos[t.id]?.causa_externa)} onChange={e => actualizarFormularioSeguimiento(t.id, { causa_externa: e.target.checked })} />
+                              En espera de proveedor o servicio externo
+                            </label>
+                          </div>}
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                              <input type="checkbox" checked={Boolean(formSeguimientos[t.id]?.resuelto)} onChange={e => actualizarFormularioSeguimiento(t.id, { resuelto: e.target.checked })} />
+                              Confirmar que el ticket está resuelto
+                            </label>
+                            <button onClick={() => guardarSeguimientoTicket(t)} className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">Enviar actualización</button>
+                          </div>
+                        </div>
+                      ) : <p className="border-t pt-3 text-xs text-slate-500">La actualización y resolución corresponden al administrador responsable asignado.</p>}
                     </div>
                   );
                 })
               )}
             </div>
+          )}
+
+          {activeTab === 'asignaciones' && currentUser.isAdmin && (
+            <section className="space-y-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Asignación de tickets</h2>
+                <p className="text-sm text-slate-500 mt-1">Elige el área; el sistema asignará al administrador responsable de esa sección.</p>
+              </div>
+              {tickets.filter(ticket => ticket.estado !== 'resuelto').map(ticket => (
+                <article key={ticket.id} className="bg-white border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-slate-900">{ticket.titulo}</h3>
+                    <p className="text-xs text-slate-500 mt-1">Solicitante: {ticket.creador_nombre} · Responsable actual: {ticket.asignado_nombre || 'Sin asignar'}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <select aria-label={`Área para ${ticket.titulo}`} value={areaAsignacion[ticket.id] ?? ticket.departamento_destino_id} onChange={event => setAreaAsignacion(actual => ({ ...actual, [ticket.id]: Number(event.target.value) }))} className="px-3 py-2 border rounded-lg text-sm bg-white">
+                      <option value="1">Infraestructura</option><option value="2">Desarrollo</option><option value="3">GPS</option><option value="4">Gerencia IT</option>
+                    </select>
+                    <button onClick={() => moverTicketPorArea(ticket, Number(areaAsignacion[ticket.id] ?? ticket.departamento_destino_id))} className="bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-semibold">{ticket.asignado_a_id ? 'Reasignar' : 'Asignar responsable'}</button>
+                  </div>
+                </article>
+              ))}
+              {!tickets.some(ticket => ticket.estado !== 'resuelto') && <p className="bg-white border rounded-xl p-6 text-center text-sm text-slate-500">No hay tickets activos para asignar.</p>}
+            </section>
           )}
 
           {/* HISTORIAL DE TICKETS (AUDITORÍA) */}
@@ -566,27 +734,44 @@ export default function App() {
                 apiFetch(API_BASE_URL, '/api/admin/usuarios', { method: 'POST', body: JSON.stringify(formUsuario) })
                   .then(res => res.json()).then(data => {
                     if (!data.success) throw new Error(data.message || 'No se pudo guardar el usuario.');
-                    setFormUsuario({ id: null, nombre: '', email: '', password: '', departamento_id: 1, activo: true });
+                    setFormUsuario({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: 1, activo: true });
                     cargarDatosAdministrativos();
                   }).catch(error => alert(error.message));
               }} className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-b pb-5">
                 <input aria-label="Nombre" placeholder="Nombre completo" required value={formUsuario.nombre} onChange={e => setFormUsuario({ ...formUsuario, nombre: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input aria-label="Correo" type="email" placeholder="Correo" required value={formUsuario.email} onChange={e => setFormUsuario({ ...formUsuario, email: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 {!formUsuario.id && <input aria-label="Contraseña" type="password" minLength="8" placeholder="Contraseña inicial (8 caracteres mínimo)" required value={formUsuario.password} onChange={e => setFormUsuario({ ...formUsuario, password: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />}
-                <select aria-label="Área" value={formUsuario.departamento_id || ''} onChange={e => setFormUsuario({ ...formUsuario, departamento_id: Number(e.target.value) || null })} className="px-3 py-2 border rounded-lg text-sm bg-white">
-                  <option value="">Sin área</option><option value="1">Infraestructura</option><option value="2">Desarrollo</option><option value="3">GPS</option><option value="4">Gerencia</option>
-                </select>
+                <label className="block space-y-1 text-xs font-semibold text-slate-600">
+                  <span>Rol de la cuenta</span>
+                  <select aria-label="Rol del usuario" value={formUsuario.rol} onChange={e => {
+                    const rol = e.target.value;
+                    const departamentoPorRol = { admin_infra: 1, admin_desarrollo: 2, admin_gps: 3, gerente_it: 4 };
+                    setFormUsuario({ ...formUsuario, rol, departamento_id: departamentoPorRol[rol] || formUsuario.departamento_id });
+                  }} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
+                    <option value="usuario_final">Usuario normal</option>
+                    <option value="admin_infra">Administrador de Infraestructura</option>
+                    <option value="admin_desarrollo">Administrador de Desarrollo</option>
+                    <option value="admin_gps">Administrador de GPS</option>
+                    <option value="gerente_it">Gerente de IT</option>
+                  </select>
+                </label>
+                <label className="block space-y-1 text-xs font-semibold text-slate-600">
+                  <span>Área</span>
+                  <select aria-label="Área" value={formUsuario.departamento_id || ''} onChange={e => setFormUsuario({ ...formUsuario, departamento_id: Number(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
+                    <option value="">Sin área</option><option value="1">Infraestructura</option><option value="2">Desarrollo</option><option value="3">GPS</option><option value="4">Gerencia</option>
+                  </select>
+                </label>
                 {formUsuario.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={formUsuario.activo} onChange={e => setFormUsuario({ ...formUsuario, activo: e.target.checked })} /> Cuenta activa</label>}
                 <div className="flex gap-2">
                   <button className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">{formUsuario.id ? 'Guardar cambios' : 'Crear usuario'}</button>
-                  {formUsuario.id && <button type="button" onClick={() => setFormUsuario({ id: null, nombre: '', email: '', password: '', departamento_id: 1, activo: true })} className="border px-4 py-2 rounded-lg text-sm">Cancelar</button>}
+                  {formUsuario.id && <button type="button" onClick={() => setFormUsuario({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: 1, activo: true })} className="border px-4 py-2 rounded-lg text-sm">Cancelar</button>}
                 </div>
               </form>
               <div className="divide-y">
                 {usuarios.map(usuario => <div key={usuario.id} className="py-3 flex flex-wrap gap-3 items-center justify-between text-sm">
                   <div><strong>{usuario.nombre}</strong><div className="text-xs text-slate-500">{usuario.email} · {usuario.departamento_nombre || 'Sin área'} · {usuario.rol}{usuario.activo ? '' : ' · Inactivo'}</div></div>
                   <div className="flex gap-2">
-                    <button onClick={() => setFormUsuario({ id: usuario.id, nombre: usuario.nombre, email: usuario.email, password: '', departamento_id: usuario.departamento_id, activo: usuario.activo })} className="border px-3 py-1.5 rounded text-xs">Editar</button>
+                    <button onClick={() => setFormUsuario({ id: usuario.id, nombre: usuario.nombre, email: usuario.email, password: '', rol: usuario.rol, departamento_id: usuario.departamento_id, activo: usuario.activo })} className="border px-3 py-1.5 rounded text-xs">Editar</button>
                     <button onClick={() => {
                       if (!window.confirm(`¿Eliminar a ${usuario.nombre}?`)) return;
                       apiFetch(API_BASE_URL, `/api/admin/usuarios/${usuario.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
@@ -621,7 +806,7 @@ export default function App() {
                     const day = index - firstWeekday + 1;
                     const inMonth = day > 0 && day <= daysInMonth;
                     const events = inMonth ? calendario.filter(evento => {
-                      const date = new Date(evento.fecha);
+                      const date = parseLocalDate(evento.fecha);
                       return date.getFullYear() === mesCalendario.getFullYear() && date.getMonth() === mesCalendario.getMonth() && date.getDate() === day;
                     }) : [];
                     return <div key={index} className={`min-h-20 border-r border-b p-1.5 ${inMonth ? 'bg-white' : 'bg-slate-50 text-slate-300'}`}>
@@ -646,13 +831,13 @@ export default function App() {
                 }).catch(error => alert(error.message));
               }} className="grid sm:grid-cols-2 gap-3 border-b pb-5">
                 <input placeholder="Título de tarea" required value={formTarea.titulo} onChange={e => setFormTarea({ ...formTarea, titulo: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
-                <input type="datetime-local" required value={formTarea.fecha_limite} onChange={e => setFormTarea({ ...formTarea, fecha_limite: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
+                <input type="date" required value={formTarea.fecha_limite} onChange={e => setFormTarea({ ...formTarea, fecha_limite: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input placeholder="Descripción" value={formTarea.descripcion} onChange={e => setFormTarea({ ...formTarea, descripcion: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <button className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">{formTarea.id ? 'Guardar cambios' : 'Agregar tarea'}</button>
               </form>
               <div className="divide-y">{tareas.map(tarea => <div key={tarea.id} className="py-3 flex justify-between gap-3 text-sm">
-                <div><strong>{tarea.titulo}</strong><div className="text-xs text-slate-500">{tarea.descripcion} · {tarea.asignado_nombre} · {new Date(tarea.fecha_limite).toLocaleString()}</div></div>
-                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', fecha_limite: new Date(tarea.fecha_limite).toISOString().slice(0, 16), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(() => cargarDatosAdministrativos())} className="text-red-700 text-xs">Eliminar</button></div>
+                <div><strong>{tarea.titulo}</strong><div className="text-xs text-slate-500">{tarea.descripcion} · {tarea.asignado_nombre} · {parseLocalDate(tarea.fecha_limite).toLocaleDateString()}</div></div>
+                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', fecha_limite: String(tarea.fecha_limite).slice(0, 10), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(() => cargarDatosAdministrativos())} className="text-red-700 text-xs">Eliminar</button></div>
               </div>)}</div>
             </div>
           )}

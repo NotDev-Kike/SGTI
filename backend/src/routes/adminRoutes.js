@@ -8,8 +8,10 @@ router.post('/usuarios', controller.crearModificarUsuario);
 router.delete('/usuarios/:id', controller.eliminarUsuario);
 
 // Tickets de todos (Semáforo y control Admin)
+router.get('/tickets/eficiencia', controller.listarEficienciaAdmins);
 router.get('/tickets/todos', controller.listarTicketsAdmin);
 router.put('/tickets/:id/modificar', controller.moverOResolverTicket);
+router.put('/tickets/:id/seguimiento', controller.actualizarSeguimientoTicket);
 
 // Proyectos de TI
 router.get('/proyectos-ti', controller.listarProyectos);

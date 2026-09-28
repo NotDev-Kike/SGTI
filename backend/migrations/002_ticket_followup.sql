@@ -1,0 +1,4 @@
+ALTER TABLE tickets
+  ADD COLUMN IF NOT EXISTS fecha_estimada_resolucion TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS causa_externa BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS actualizacion_publica TEXT;
