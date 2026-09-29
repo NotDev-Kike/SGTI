@@ -17,6 +17,7 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/admin', require('./middleware/auth').authenticate, require('./middleware/auth').requireAdmin, require('./routes/adminRoutes'));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`Servidor corriendo en http://${HOST}:${PORT}`);
 });

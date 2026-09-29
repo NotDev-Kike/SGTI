@@ -100,7 +100,18 @@ El registro público crea cuentas con rol `usuario_final`. Las rutas bajo `/api/
 4. Iniciar el backend desde `backend/` con `npm run dev` durante desarrollo o `npm start` para ejecución normal. Ambos comandos cargan `src/index.js`.
 5. Iniciar el frontend desde `frontend/` con `npm start`.
 
-**Puertos:** el backend y el proxy de desarrollo del frontend usan por defecto el puerto 5000. Si se cambia el puerto del backend o se despliega el frontend por separado, configurar `REACT_APP_API_BASE_URL` con la URL correspondiente. CORS está habilitado en Express.
+**Puertos:** el backend usa `PORT` (5000 si no se configura) y el proxy de desarrollo del frontend apunta a `http://127.0.0.1:4000`; ambos valores deben coincidir. Con la configuración actual, el backend usa el puerto 4000.
+
+### 4.1.1 Acceso desde la red local
+
+El backend y el servidor de desarrollo del frontend escuchan en todas las interfaces de red. Para compartir el sistema con equipos conectados a la misma red:
+
+1. Iniciar backend y frontend como se indica arriba en el equipo que alojará el sistema.
+2. Consultar la dirección IPv4 local de ese equipo (`ip addr` en Linux o `ipconfig` en Windows).
+3. Compartir `http://<IP-LOCAL-DEL-EQUIPO>:3000`; por ejemplo, `http://192.168.1.25:3000`.
+4. Si no se puede abrir desde otro equipo, permitir conexiones entrantes al puerto 3000 en el firewall. El navegador usa el proxy del frontend para comunicarse con el backend.
+
+Este enlace solo funciona mientras los dos servidores estén ejecutándose y los equipos tengan conectividad entre sí. Está pensado para una red de confianza; no se debe exponer a Internet sin HTTPS y controles de acceso adecuados.
 
 ### 4.2 Alta e inicio de sesión
 
