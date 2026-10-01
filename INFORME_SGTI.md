@@ -55,8 +55,10 @@ SGTI/
 | `backend/src/controllers/chatController.js` | Lee y envía mensajes dentro de un ticket, comprobando acceso del solicitante o de un administrador. |
 | `backend/src/controllers/directChatController.js` | Lista administradores y conversaciones directas, crea conversaciones al enviar mensajes y marca mensajes recibidos como leídos. |
 | `backend/scripts/bootstrap-admins.js` | Provisiona las cuatro cuentas administrativas a partir de variables de entorno, comprobando las áreas y usando una transacción. |
+| `backend/scripts/migrate-helpdesk.js` | Aplica en PostgreSQL la migración del catálogo de categorías y el inventario por departamento. |
 | `backend/migrations/001_direct_chat.sql` | DDL de conversaciones directas y mensajes directos, incluidas sus restricciones e índice. |
 | `backend/migrations/002_ticket_followup.sql` | Agrega a `tickets` los campos usados para fecha estimada, causa externa y actualización pública. |
+| `backend/migrations/003_helpdesk_catalog_inventory.sql` | Crea el catálogo de categorías, sus opciones iniciales y el inventario por departamento. |
 | `backend/prisma/schema.prisma` | Describe dos modelos Prisma, `Ticket` e `HistorialTicketLog`. No describe toda la base que consulta la aplicación. |
 | `backend/prisma.config.ts` | Configuración de Prisma para sincronizar instrucciones/skills de herramientas de desarrollo. No define el esquema PostgreSQL operativo. |
 | `backend/package.json` | Dependencias y comandos del backend. El script de ejecución apunta a `src/index.js`. |
@@ -238,8 +240,9 @@ Estos dos modelos no representan el contrato SQL actual de los controladores. Po
 
 - `backend/migrations/001_direct_chat.sql`: crea `conversaciones_directas` con clave primaria serial, referencias en cascada a usuarios, fecha de creación, par solicitante/administrador único y restricción para que no sea la misma persona. Crea `mensajes_directos` con referencias en cascada a conversación y remitente, texto no vacío, marca de lectura, fecha de creación e índice `(conversacion_id, created_at)`.
 - `backend/migrations/002_ticket_followup.sql`: agrega a `tickets` `fecha_estimada_resolucion TIMESTAMP`, `causa_externa BOOLEAN NOT NULL DEFAULT FALSE` y `actualizacion_publica TEXT`. Usa `ADD COLUMN IF NOT EXISTS`, por lo que se puede volver a ejecutar.
+- `backend/migrations/003_helpdesk_catalog_inventory.sql`: crea `categorias_ticket` e `inventario_departamentos`, índices asociados y cuatro categorías iniciales. Puede ejecutarse repetidamente.
 
-Las migraciones se encuentran en `backend/migrations/`, no dentro de la carpeta de migraciones de Prisma. Se aplican manualmente con `psql`; no hay un script `migrate` en `package.json`.
+Las migraciones se encuentran en `backend/migrations/`, fuera de la carpeta de migraciones de Prisma. Para crear el catálogo y el inventario en la base configurada, ejecutar `npm run migrate:helpdesk` desde `backend/`; usa `DATABASE_URL` y aplica la migración 003.
 
 ### 6.5 Relaciones funcionales
 
@@ -290,6 +293,7 @@ npm install
 npm run dev
 npm start
 npm run bootstrap:admins
+npm run migrate:helpdesk
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_direct_chat.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_ticket_followup.sql
 ```

@@ -579,7 +579,7 @@ export default function App() {
           <div className="text-xs bg-slate-100 px-3 py-1 rounded-full font-semibold border">{currentUser.area}</div>
         </header>
 
-        <main className={`p-6 flex-1 w-full mx-auto space-y-6 ${sidebarCollapsed ? 'max-w-7xl' : 'max-w-5xl'}`}>
+        <main className={`p-6 flex-1 w-full mx-auto space-y-6 ${currentUser.isAdmin ? 'max-w-screen-2xl' : sidebarCollapsed ? 'max-w-7xl' : 'max-w-5xl'}`}>
           
           {/* DASHBOARD GENERAL */}
           {activeTab === 'dashboard' && (
@@ -623,7 +623,7 @@ export default function App() {
                     <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">{usuariosHelpdesk.length} usuarios</span>
                   </div>
                   <div className="grid min-h-[440px] md:grid-cols-[260px_minmax(0,1fr)]">
-                    <div className="border-b border-slate-200 md:border-b-0 md:border-r">
+                    <div className="border-b border-slate-200 md:max-h-[680px] md:overflow-y-auto md:border-b-0 md:border-r">
                       {usuariosHelpdesk.map(usuario => {
                         const mensajesNuevos = Number(usuario.conversacion?.pendientes || 0);
                         const cuentaTickets = ticketsAsignados.filter(ticket => String(ticket.usuario_creador_id) === usuario.id).length;
