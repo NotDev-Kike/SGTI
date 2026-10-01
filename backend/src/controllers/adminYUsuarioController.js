@@ -71,6 +71,89 @@ exports.eliminarUsuario = async (req, res) => {
   }
 };
 
+exports.crearCategoria = async (req, res) => {
+  const nombre = typeof req.body.nombre === 'string' ? req.body.nombre.trim() : '';
+  if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la categoría es obligatorio.' });
+  try {
+    const { rows } = await db.query(
+      'INSERT INTO categorias_ticket (nombre) VALUES ($1) RETURNING id, nombre', [nombre]
+    );
+    res.status(201).json({ success: true, data: rows[0] });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Ya existe una categoría con ese nombre.' });
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.modificarCategoria = async (req, res) => {
+  const nombre = typeof req.body.nombre === 'string' ? req.body.nombre.trim() : '';
+  if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la categoría es obligatorio.' });
+  try {
+    const { rows } = await db.query(
+      'UPDATE categorias_ticket SET nombre = $1 WHERE id = $2 AND activo = TRUE RETURNING id, nombre', [nombre, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Categoría no encontrada.' });
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Ya existe una categoría con ese nombre.' });
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.eliminarCategoria = async (req, res) => {
+  try {
+    const { rowCount } = await db.query('UPDATE categorias_ticket SET activo = FALSE WHERE id = $1 AND activo = TRUE', [req.params.id]);
+    if (!rowCount) return res.status(404).json({ success: false, message: 'Categoría no encontrada.' });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.listarInventario = async (_req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT i.id, i.departamento_id, d.nombre AS departamento_nombre, i.nombre, i.tipo,
+             i.cantidad, i.ubicacion, i.notas, i.updated_at
+      FROM inventario_departamentos i
+      JOIN departamentos d ON d.id = i.departamento_id
+      ORDER BY d.nombre, i.tipo, i.nombre;
+    `);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.guardarActivo = async (req, res) => {
+  const { id } = req.params;
+  const { departamento_id, nombre, tipo, cantidad, ubicacion, notas } = req.body;
+  const departmentId = Number(departamento_id);
+  const quantity = Number(cantidad);
+  if (!Number.isInteger(departmentId) || departmentId < 1 || !nombre?.trim() || !tipo?.trim() || !Number.isInteger(quantity) || quantity < 0) {
+    return res.status(400).json({ success: false, message: 'Área, nombre, tipo y cantidad válida son obligatorios.' });
+  }
+  try {
+    const result = id
+      ? await db.query(`UPDATE inventario_departamentos SET departamento_id = $1, nombre = $2, tipo = $3, cantidad = $4, ubicacion = $5, notas = $6, updated_at = CURRENT_TIMESTAMP WHERE id = $7 RETURNING *`, [departmentId, nombre.trim(), tipo.trim(), quantity, ubicacion?.trim() || null, notas?.trim() || null, id])
+      : await db.query(`INSERT INTO inventario_departamentos (departamento_id, nombre, tipo, cantidad, ubicacion, notas, actualizado_por_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`, [departmentId, nombre.trim(), tipo.trim(), quantity, ubicacion?.trim() || null, notas?.trim() || null, req.user.id]);
+    if (id && !result.rowCount) return res.status(404).json({ success: false, message: 'Activo no encontrado.' });
+    res.status(id ? 200 : 201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.eliminarActivo = async (req, res) => {
+  try {
+    const { rowCount } = await db.query('DELETE FROM inventario_departamentos WHERE id = $1', [req.params.id]);
+    if (!rowCount) return res.status(404).json({ success: false, message: 'Activo no encontrado.' });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.listarTareas = async (req, res) => {
   try {
     const { rows } = await db.query(`

@@ -1,4 +1,13 @@
 const db = require('../config/db');
+
+exports.listarCategorias = async (_req, res) => {
+  try {
+    const { rows } = await db.query('SELECT id, nombre FROM categorias_ticket WHERE activo = TRUE ORDER BY nombre');
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 const historialPublicoSql = `
   COALESCE((
     SELECT json_agg(json_build_object(

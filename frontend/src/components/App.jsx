@@ -55,6 +55,11 @@ export default function App() {
   const [ticketsResueltos, setTicketsResueltos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
+  const [categorias, setCategorias] = useState([
+    { id: 'hardware', nombre: 'Hardware' }, { id: 'software', nombre: 'Software' },
+    { id: 'redes', nombre: 'Redes' }, { id: 'gps', nombre: 'GPS / Rutas' }
+  ]);
+  const [inventario, setInventario] = useState([]);
   const [eficienciaAdmins, setEficienciaAdmins] = useState([]);
   const [tareas, setTareas] = useState([]);
   const [proyectos, setProyectos] = useState([]);
@@ -63,6 +68,7 @@ export default function App() {
   const [conversaciones, setConversaciones] = useState([]);
   const [adminsChat, setAdminsChat] = useState([]);
   const [chatDestinatario, setChatDestinatario] = useState('');
+  const [usuarioHelpdeskSeleccionado, setUsuarioHelpdeskSeleccionado] = useState('');
   const [chatError, setChatError] = useState('');
   const [ticketEnEdicion, setTicketEnEdicion] = useState(null);
   const [areaAsignacion, setAreaAsignacion] = useState({});
@@ -74,7 +80,7 @@ export default function App() {
     tipo_solicitud: 'incidencia',
     titulo: '',
     descripcion: '',
-    categoria: 'hardware',
+    categoria: 'Hardware',
     departamento_destino_id: '',
     prioridad: 'media'
   });
@@ -82,6 +88,8 @@ export default function App() {
   const [resolucionTextos, setResolucionTextos] = useState({});
   const [nuevoChat, setNuevoChat] = useState('');
   const [formUsuario, setFormUsuario] = useState({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: null, activo: true });
+  const [formCategoria, setFormCategoria] = useState({ id: null, nombre: '' });
+  const [formActivo, setFormActivo] = useState({ id: null, departamento_id: '', nombre: '', tipo: 'Impresora', cantidad: 1, ubicacion: '', notas: '' });
   const [formTarea, setFormTarea] = useState({ id: null, titulo: '', descripcion: '', asignado_a_id: '', fecha_limite: '', estado: 'pendiente' });
   const [formProyecto, setFormProyecto] = useState({ id: null, titulo: '', descripcion: '', estado: 'planificacion' });
   const [formEncuesta, setFormEncuesta] = useState({ ticket_id: '', calificacion: 5, comentario: '' });
@@ -103,6 +111,15 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
+    if (!currentUser) return undefined;
+    let active = true;
+    apiFetch(API_BASE_URL, '/api/tickets/categorias').then(res => res.json()).then(data => {
+      if (active && data.success && data.data.length) setCategorias(data.data);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [currentUser]);
+
+  useEffect(() => {
     if (currentUser) {
       localStorage.setItem('sgti_user', JSON.stringify(currentUser));
       cargarDatosGlobales();
@@ -113,7 +130,7 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!currentUser || activeTab !== 'chat') return undefined;
+    if (!currentUser || (activeTab !== 'chat' && !(currentUser.isAdmin && activeTab === 'dashboard'))) return undefined;
 
     const cargarConversacion = () => {
       if (currentUser.isAdmin) {
@@ -209,13 +226,23 @@ export default function App() {
       }).catch(() => {});
     });
     cargarCalendario();
-    apiFetch(API_BASE_URL, '/api/admin/configuraciones').then(res => res.json()).then(data => {
-      if (data.success) {
-        const stored = Object.fromEntries(data.data.map(item => [item.clave, item.valor === 'true']));
-        setConfiguracionSistema({ modo_mantenimiento: false, alertas_email: true, ...stored });
-      }
-    }).catch(() => {});
+    if (currentUser?.rol === 'gerente_it') {
+      apiFetch(API_BASE_URL, '/api/admin/configuraciones').then(res => res.json()).then(data => {
+        if (data.success) {
+          const stored = Object.fromEntries(data.data.map(item => [item.clave, item.valor === 'true']));
+          setConfiguracionSistema({ modo_mantenimiento: false, alertas_email: true, ...stored });
+        }
+      }).catch(() => {});
+    }
   };
+
+  useEffect(() => {
+    if (!currentUser || currentUser.rol !== 'admin_infra' || activeTab !== 'inventario') return undefined;
+    const cargarInventario = () => apiFetch(API_BASE_URL, '/api/admin/infraestructura/inventario')
+      .then(res => res.json()).then(data => { if (data.success) setInventario(data.data); }).catch(() => {});
+    cargarInventario();
+    return undefined;
+  }, [currentUser, activeTab]);
 
   const enviarConfiguracion = () => {
     apiFetch(API_BASE_URL, '/api/admin/configuraciones', {
@@ -316,7 +343,7 @@ export default function App() {
         if (!data.success) throw new Error(data.message || 'No se pudo crear el ticket.');
         cargarDatosGlobales();
         alert(`Ticket clasificado como [${formTicket.tipo_solicitud.toUpperCase()}] creado con éxito.`);
-        setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'hardware', departamento_destino_id: '', prioridad: 'media' });
+        setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'Hardware', departamento_destino_id: '', prioridad: 'media' });
         setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'mis_tickets');
       })
       .catch(error => alert(error.message));
@@ -384,9 +411,9 @@ export default function App() {
       .some(valor => String(valor || '').toLocaleLowerCase().includes(termino)));
   };
   const etiquetasSeccion = {
-    dashboard: 'Inicio', crear_ticket: 'Crear ticket', todos_tickets: 'Tickets de todos', asignaciones: 'Asignación de tickets',
+    dashboard: 'Dashboard', crear_ticket: 'Crear ticket', todos_tickets: 'Tickets de todos', asignaciones: 'Asignación de tickets',
     historial: 'Historial', usuarios: 'Gestión de usuarios', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
-    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets'
+    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento'
   };
   const ticketsAsignados = currentUser?.isAdmin
     ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
@@ -394,6 +421,26 @@ export default function App() {
   const mensajesPendientes = currentUser?.isAdmin
     ? conversaciones.reduce((total, conversacion) => total + Number(conversacion.pendientes || 0), 0)
     : 0;
+  const usuariosHelpdeskMap = new Map();
+  conversaciones.forEach(conversacion => usuariosHelpdeskMap.set(String(conversacion.usuario_id), {
+    id: String(conversacion.usuario_id), nombre: conversacion.usuario_nombre, conversacion
+  }));
+  ticketsAsignados.forEach(ticket => {
+    const id = String(ticket.usuario_creador_id);
+    if (!usuariosHelpdeskMap.has(id)) usuariosHelpdeskMap.set(id, { id, nombre: ticket.creador_nombre || ticket.nombre_solicitante, conversacion: null });
+  });
+  const usuariosHelpdesk = Array.from(usuariosHelpdeskMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const usuarioHelpdeskActivo = usuariosHelpdesk.find(usuario => usuario.id === usuarioHelpdeskSeleccionado);
+  const ticketsUsuarioHelpdesk = usuarioHelpdeskActivo
+    ? ticketsAsignados.filter(ticket => String(ticket.usuario_creador_id) === usuarioHelpdeskActivo.id)
+    : [];
+
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || !currentUser?.isAdmin || usuarioHelpdeskSeleccionado || !usuariosHelpdesk.length) return;
+    setUsuarioHelpdeskSeleccionado(usuariosHelpdesk[0].id);
+    setChatDestinatario(usuariosHelpdesk[0].id);
+  }, [activeTab, currentUser, usuarioHelpdeskSeleccionado, usuariosHelpdesk]);
+
   if (!currentUser) {
     return <Login onLogin={handleLoginSuccess} apiBaseUrl={API_BASE_URL} />;
   }
@@ -416,7 +463,14 @@ export default function App() {
             onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
           >
-            Inicio
+            Dashboard
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'chat' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+          >
+            Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
           </button>
 
           {currentUser.isAdmin ? (
@@ -433,7 +487,7 @@ export default function App() {
               >
                 Tickets de todos ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
               </button>
-              {currentUser.rol === 'gerente_it' && <button
+                    {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('asignaciones'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'asignaciones' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
               >
@@ -469,12 +523,14 @@ export default function App() {
               >
                 Proyectos de IT
               </button>
-              <button 
+              {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'configuracion' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
-              >
-                Configuración
-              </button>
+              >Configuración</button>}
+              {currentUser.rol === 'admin_infra' && <button
+                onClick={() => { setActiveTab('inventario'); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'inventario' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+              >Inventario por departamento</button>}
             </>
           ) : (
             <>
@@ -499,12 +555,6 @@ export default function App() {
             </>
           )}
 
-          <button 
-            onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'chat' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
-          >
-            Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
-          </button>
           {currentUser.isAdmin && <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'apis' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>Referencia de API</button>}
         </nav>
 
@@ -535,8 +585,17 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               <div className="bg-white p-6 rounded-2xl border shadow-sm">
-                <h1 className="text-2xl font-extrabold text-slate-900">Bienvenido al Panel SGTI, {currentUser.email}</h1>
-                <p className="text-sm text-slate-500 mt-1">Gestión centralizada para áreas de Gerencia, Infraestructura, GPS y Desarrollo.</p>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Helpdesk SGTI · Dashboard</p>
+                    <h1 className="mt-1 text-2xl font-extrabold text-slate-900">Hola, {currentUser.nombre || currentUser.email}</h1>
+                    <p className="mt-1 text-sm text-slate-500">Solicitudes de soporte y comunicación con IT, en un solo lugar.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setActiveTab('crear_ticket')} className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Crear solicitud</button>
+                    <button onClick={() => setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'chat')} className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">{currentUser.isAdmin ? 'Ver tickets' : 'Mensajes con IT'}</button>
+                  </div>
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-white p-5 rounded-xl border shadow-sm">
@@ -554,6 +613,100 @@ export default function App() {
                   <div className="text-3xl font-extrabold text-emerald-600 mt-2">{currentUser.isAdmin ? historial.length : ticketsResueltos.length}</div>
                 </div>
               </div>
+              {currentUser.isAdmin ? (
+                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Bandeja de atención por usuario">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                    <div>
+                      <h2 className="font-bold text-slate-900">Bandeja de atención</h2>
+                      <p className="mt-1 text-xs text-slate-500">Conversaciones y tickets asignados a usted, agrupados por solicitante.</p>
+                    </div>
+                    <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">{usuariosHelpdesk.length} usuarios</span>
+                  </div>
+                  <div className="grid min-h-[440px] md:grid-cols-[260px_minmax(0,1fr)]">
+                    <div className="border-b border-slate-200 md:border-b-0 md:border-r">
+                      {usuariosHelpdesk.map(usuario => {
+                        const mensajesNuevos = Number(usuario.conversacion?.pendientes || 0);
+                        const cuentaTickets = ticketsAsignados.filter(ticket => String(ticket.usuario_creador_id) === usuario.id).length;
+                        return <button key={usuario.id} onClick={() => {
+                          setUsuarioHelpdeskSeleccionado(usuario.id);
+                          setChatDestinatario(usuario.id);
+                        }} className={`w-full border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 ${usuarioHelpdeskSeleccionado === usuario.id ? 'border-l-4 border-l-blue-700 bg-blue-50' : 'border-l-4 border-l-transparent'}`}>
+                          <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800">
+                            <span className="truncate">{usuario.nombre}</span>
+                            {mensajesNuevos > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] text-white">{mensajesNuevos}</span>}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-500">{cuentaTickets} tickets asignados</span>
+                          {usuario.conversacion?.ultimo_mensaje && <span className="mt-1 block truncate text-xs text-slate-500">{usuario.conversacion.ultimo_mensaje}</span>}
+                        </button>;
+                      })}
+                      {!usuariosHelpdesk.length && <p className="px-4 py-8 text-center text-sm text-slate-500">No hay usuarios con tickets asignados ni conversaciones.</p>}
+                    </div>
+                    <div className="min-w-0 p-4 sm:p-5">
+                      {usuarioHelpdeskActivo ? <div className="grid gap-5 lg:grid-cols-2">
+                        <section className="min-w-0">
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <div><h3 className="font-bold text-slate-900">{usuarioHelpdeskActivo.nombre}</h3><p className="text-xs text-slate-500">Conversación con el usuario</p></div>
+                            <span className="text-xs text-slate-500">{chatMensajes.length} mensajes</span>
+                          </div>
+                          <div className="flex h-64 flex-col gap-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3" aria-live="polite">
+                            {chatMensajes.map(mensaje => <div key={mensaje.id} className={`max-w-[90%] rounded-lg border p-3 text-sm ${Number(mensaje.remitente_id) === Number(currentUser.id) ? 'ml-auto border-blue-100 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                              <div className="mb-1 text-[11px] font-semibold text-slate-500">{mensaje.remitente_nombre || 'Usuario'} · {new Date(mensaje.created_at).toLocaleString()}</div>
+                              <p className="whitespace-pre-wrap break-words text-slate-700">{mensaje.mensaje}</p>
+                            </div>)}
+                            {!chatMensajes.length && <p className="m-auto text-sm text-slate-500">Inicie la conversación con {usuarioHelpdeskActivo.nombre}.</p>}
+                          </div>
+                          <form onSubmit={event => {
+                            event.preventDefault();
+                            if (!nuevoChat.trim()) return;
+                            apiFetch(API_BASE_URL, '/api/chat/directo', { method: 'POST', body: JSON.stringify({ usuario_id: Number(usuarioHelpdeskActivo.id), mensaje: nuevoChat.trim() }) })
+                              .then(res => res.json()).then(data => {
+                                if (!data.success) throw new Error(data.message || 'No se pudo enviar el mensaje.');
+                                setNuevoChat('');
+                                return apiFetch(API_BASE_URL, `/api/chat/directo?usuario_id=${encodeURIComponent(usuarioHelpdeskActivo.id)}`).then(res => res.json());
+                              }).then(data => { if (data?.success) setChatMensajes(data.data); }).catch(error => setChatError(error.message));
+                          }} className="mt-2 flex gap-2">
+                            <input aria-label="Mensaje para el usuario" value={nuevoChat} onChange={event => setNuevoChat(event.target.value)} placeholder="Escriba una respuesta..." className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                            <button disabled={!nuevoChat.trim()} className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-300">Enviar</button>
+                          </form>
+                          {chatError && <p role="alert" className="mt-2 text-xs text-red-700">{chatError}</p>}
+                        </section>
+                        <section className="min-w-0">
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <div><h3 className="font-bold text-slate-900">Tickets del usuario</h3><p className="text-xs text-slate-500">Solicitudes asignadas a su cuenta</p></div>
+                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">{ticketsUsuarioHelpdesk.length} activos</span>
+                          </div>
+                          <div className="divide-y divide-slate-200 rounded-lg border border-slate-200">
+                            {ticketsUsuarioHelpdesk.map(ticket => <button key={ticket.id} onClick={() => abrirDetalleTicket(ticket)} className="block w-full p-3 text-left hover:bg-slate-50">
+                              <span className="flex items-start justify-between gap-2"><strong className="text-sm text-slate-800">{ticket.titulo}</strong><span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">{etiquetaEstadoTicket(ticket.estado)}</span></span>
+                              <span className="mt-1 block text-xs text-slate-500">#{ticket.id} · {ticket.categoria || 'Sin categoría'} · {ticket.prioridad || 'Prioridad media'}</span>
+                            </button>)}
+                            {!ticketsUsuarioHelpdesk.length && <p className="px-3 py-8 text-center text-sm text-slate-500">No tiene tickets activos asignados a usted.</p>}
+                          </div>
+                        </section>
+                      </div> : <div className="flex h-full min-h-72 items-center justify-center text-center text-sm text-slate-500">Seleccione un usuario para ver su conversación y sus tickets.</div>}
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-bold text-slate-900">Mis solicitudes</h2><p className="mt-1 text-xs text-slate-500">Consulte el estado de sus solicitudes recientes.</p></div><button onClick={() => setActiveTab('mis_tickets')} className="text-xs font-semibold text-blue-700 hover:underline">Ver todas</button></div>
+                    <div className="divide-y divide-slate-200">
+                      {misTickets.slice(0, 4).map(ticket => <button key={ticket.id} onClick={() => abrirDetalleTicket(ticket)} className="flex w-full items-center justify-between gap-3 py-3 text-left">
+                        <span className="min-w-0"><strong className="block truncate text-sm text-slate-800">{ticket.titulo}</strong><span className="text-xs text-slate-500">#{ticket.id} · {ticket.departamento_destino_nombre || 'En atención'}</span></span>
+                        <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{etiquetaEstadoTicket(ticket.estado)}</span>
+                      </button>)}
+                      {!misTickets.length && <p className="py-8 text-center text-sm text-slate-500">Aún no tiene solicitudes. Cree una para comenzar.</p>}
+                    </div>
+                  </div>
+                  <button onClick={() => setActiveTab('chat')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50">
+                    <span className="text-xs font-bold uppercase text-blue-700">Soporte directo</span>
+                    <strong className="mt-2 block text-lg text-slate-900">Mensajes con IT</strong>
+                    <span className="mt-2 block text-sm text-slate-600">Consulte al equipo de soporte y continúe sus conversaciones.</span>
+                    <span className="mt-5 block text-sm font-semibold text-blue-700">Abrir conversación →</span>
+                  </button>
+                </section>
+              )}
               {currentUser.isAdmin && (
                 <section className="bg-white border rounded-xl p-5 space-y-3">
                   <div>
@@ -625,15 +778,12 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
-                    <select 
+                    <select
                       value={formTicket.categoria}
                       onChange={e => setFormTicket({...formTicket, categoria: e.target.value})}
                       className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
                     >
-                      <option value="hardware">Hardware</option>
-                      <option value="software">Software</option>
-                      <option value="redes">Redes</option>
-                      <option value="gps">GPS / Rutas</option>
+                      {categorias.map(categoria => <option key={categoria.id} value={categoria.nombre}>{categoria.nombre}</option>)}
                     </select>
                   </div>
                   <div>
@@ -914,9 +1064,40 @@ export default function App() {
           )}
 
           {/* CONFIGURACIONES */}
-          {activeTab === 'configuracion' && currentUser.isAdmin && (
+          {activeTab === 'configuracion' && currentUser.rol === 'gerente_it' && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4 max-w-xl">
               <h2 className="text-xl font-bold text-slate-900">Configuraciones del Sistema SGTI</h2>
+              <section className="border-b border-slate-200 pb-5">
+                <h3 className="font-bold text-slate-900">Categorías de tickets</h3>
+                <p className="mb-3 mt-1 text-xs text-slate-500">Estas opciones estarán disponibles al crear solicitudes.</p>
+                <form onSubmit={event => {
+                  event.preventDefault();
+                  const editing = Boolean(formCategoria.id);
+                  apiFetch(API_BASE_URL, editing ? `/api/admin/categorias/${formCategoria.id}` : '/api/admin/categorias', {
+                    method: editing ? 'PUT' : 'POST', body: JSON.stringify({ nombre: formCategoria.nombre })
+                  }).then(res => res.json()).then(data => {
+                    if (!data.success) throw new Error(data.message || 'No se pudo guardar la categoría.');
+                    setFormCategoria({ id: null, nombre: '' });
+                    return apiFetch(API_BASE_URL, '/api/tickets/categorias').then(res => res.json());
+                  }).then(data => { if (data?.success) setCategorias(data.data); }).catch(error => alert(error.message));
+                }} className="flex flex-wrap gap-2">
+                  <input aria-label="Nombre de categoría" required maxLength="100" value={formCategoria.nombre} onChange={event => setFormCategoria({ ...formCategoria, nombre: event.target.value })} placeholder="Ej. Telefonía" className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                  <button className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white">{formCategoria.id ? 'Guardar' : 'Agregar'}</button>
+                  {formCategoria.id && <button type="button" onClick={() => setFormCategoria({ id: null, nombre: '' })} className="rounded-md border border-slate-300 px-3 py-2 text-sm">Cancelar</button>}
+                </form>
+                <ul className="mt-3 divide-y divide-slate-100">
+                  {categorias.map(categoria => <li key={categoria.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                    <span>{categoria.nombre}</span>
+                    <span className="flex gap-3"><button onClick={() => setFormCategoria({ id: categoria.id, nombre: categoria.nombre })} className="font-semibold text-blue-700">Editar</button><button onClick={() => {
+                      if (!window.confirm(`¿Eliminar la categoría ${categoria.nombre}?`)) return;
+                      apiFetch(API_BASE_URL, `/api/admin/categorias/${categoria.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
+                        if (!data.success) throw new Error(data.message || 'No se pudo eliminar la categoría.');
+                        setCategorias(actual => actual.filter(item => item.id !== categoria.id));
+                      }).catch(error => alert(error.message));
+                    }} className="font-semibold text-red-700">Eliminar</button></span>
+                  </li>)}
+                </ul>
+              </section>
               <div className="space-y-3 text-sm">
                 <label className="flex items-center gap-3">
                   <input 
@@ -937,6 +1118,56 @@ export default function App() {
               </div>
               <button onClick={enviarConfiguracion} className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">Guardar configuración</button>
             </div>
+          )}
+
+          {activeTab === 'inventario' && currentUser.rol === 'admin_infra' && (
+            <section className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div><p className="text-xs font-bold uppercase text-emerald-700">Infraestructura</p><h2 className="mt-1 text-xl font-bold text-slate-900">Inventario por departamento</h2><p className="mt-1 text-sm text-slate-500">Equipos, cantidades y ubicaciones registrados por área.</p></div>
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700">{inventario.length} registros</span>
+              </div>
+              <form onSubmit={event => {
+                event.preventDefault();
+                const editing = Boolean(formActivo.id);
+                apiFetch(API_BASE_URL, editing ? `/api/admin/infraestructura/inventario/${formActivo.id}` : '/api/admin/infraestructura/inventario', {
+                  method: editing ? 'PUT' : 'POST', body: JSON.stringify({ ...formActivo, departamento_id: Number(formActivo.departamento_id), cantidad: Number(formActivo.cantidad) })
+                }).then(res => res.json()).then(data => {
+                  if (!data.success) throw new Error(data.message || 'No se pudo guardar el activo.');
+                  setFormActivo({ id: null, departamento_id: '', nombre: '', tipo: 'Impresora', cantidad: 1, ubicacion: '', notas: '' });
+                  return apiFetch(API_BASE_URL, '/api/admin/infraestructura/inventario').then(res => res.json());
+                }).then(data => { if (data?.success) setInventario(data.data); }).catch(error => alert(error.message));
+              }} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3">
+                <label className="text-xs font-semibold text-slate-600">Departamento
+                  <select required value={formActivo.departamento_id} onChange={event => setFormActivo({ ...formActivo, departamento_id: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"><option value="">Seleccione departamento</option>{departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}</select>
+                </label>
+                <label className="text-xs font-semibold text-slate-600">Tipo de equipo
+                  <input list="tipos-inventario" required maxLength="100" value={formActivo.tipo} onChange={event => setFormActivo({ ...formActivo, tipo: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                  <datalist id="tipos-inventario"><option value="Impresora" /><option value="Punto de acceso" /><option value="Switch" /><option value="Router" /><option value="Computadora" /><option value="Servidor" /></datalist>
+                </label>
+                <label className="text-xs font-semibold text-slate-600">Nombre o modelo<input required maxLength="160" value={formActivo.nombre} onChange={event => setFormActivo({ ...formActivo, nombre: event.target.value })} placeholder="Ej. Impresora recepción" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" /></label>
+                <label className="text-xs font-semibold text-slate-600">Cantidad<input type="number" min="0" step="1" required value={formActivo.cantidad} onChange={event => setFormActivo({ ...formActivo, cantidad: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" /></label>
+                <label className="text-xs font-semibold text-slate-600">Ubicación<input maxLength="160" value={formActivo.ubicacion} onChange={event => setFormActivo({ ...formActivo, ubicacion: event.target.value })} placeholder="Ej. Piso 2, recepción" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" /></label>
+                <label className="text-xs font-semibold text-slate-600">Notas<textarea value={formActivo.notas} onChange={event => setFormActivo({ ...formActivo, notas: event.target.value })} rows="1" placeholder="Marca, estado o detalles" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" /></label>
+                <div className="flex gap-2 sm:col-span-2 lg:col-span-3"><button className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{formActivo.id ? 'Guardar cambios' : 'Agregar al inventario'}</button>{formActivo.id && <button type="button" onClick={() => setFormActivo({ id: null, departamento_id: '', nombre: '', tipo: 'Impresora', cantidad: 1, ubicacion: '', notas: '' })} className="rounded-md border border-slate-300 px-4 py-2 text-sm">Cancelar</button>}</div>
+              </form>
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Departamento</th><th className="px-4 py-3">Equipo</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Cantidad</th><th className="px-4 py-3">Ubicación y notas</th><th className="px-4 py-3">Acciones</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">{inventario.map(activo => <tr key={activo.id}>
+                    <td className="px-4 py-3 font-medium">{activo.departamento_nombre}</td><td className="px-4 py-3">{activo.nombre}</td><td className="px-4 py-3">{activo.tipo}</td><td className="px-4 py-3">{activo.cantidad}</td><td className="max-w-xs px-4 py-3 text-slate-600">{[activo.ubicacion, activo.notas].filter(Boolean).join(' · ') || '—'}</td>
+                    <td className="px-4 py-3"><div className="flex gap-3"><button onClick={() => setFormActivo({ id: activo.id, departamento_id: String(activo.departamento_id), nombre: activo.nombre, tipo: activo.tipo, cantidad: activo.cantidad, ubicacion: activo.ubicacion || '', notas: activo.notas || '' })} className="font-semibold text-blue-700">Editar</button><button onClick={() => {
+                      if (!window.confirm(`¿Eliminar ${activo.nombre} del inventario?`)) return;
+                      apiFetch(API_BASE_URL, `/api/admin/infraestructura/inventario/${activo.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
+                        if (!data.success) throw new Error(data.message || 'No se pudo eliminar el activo.');
+                        setInventario(actual => actual.filter(item => item.id !== activo.id));
+                      }).catch(error => alert(error.message));
+                    }} className="font-semibold text-red-700">Eliminar</button></div></td>
+                  </tr>)}
+                    {!inventario.length && <tr><td colSpan="6" className="px-4 py-10 text-center text-slate-500">No hay activos registrados todavía.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
 
           {/* CHAT INMEDIATO */}

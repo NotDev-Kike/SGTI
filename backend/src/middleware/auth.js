@@ -67,4 +67,11 @@ function requireManager(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, requireAdmin, requireManager, signToken };
+function requireInfrastructure(req, res, next) {
+  if (req.user?.rol !== 'admin_infra') {
+    return res.status(403).json({ success: false, message: 'Esta acción está reservada al equipo de infraestructura.' });
+  }
+  next();
+}
+
+module.exports = { authenticate, requireAdmin, requireManager, requireInfrastructure, signToken };

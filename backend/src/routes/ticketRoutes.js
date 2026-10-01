@@ -5,6 +5,7 @@ const { authenticate, requireAdmin, requireManager } = require('../middleware/au
 
 // Definición de Endpoints
 router.use(authenticate);
+router.get('/categorias', ticketController.listarCategorias);
 router.get('/historial', requireAdmin, ticketController.listarHistorial);
 router.get('/resueltos', ticketController.listarResueltosUsuario);
 router.get('/', ticketController.listarTickets);

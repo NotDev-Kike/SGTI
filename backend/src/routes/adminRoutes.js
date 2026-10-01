@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/adminYUsuarioController');
-const { requireManager } = require('../middleware/auth');
+const { requireManager, requireInfrastructure } = require('../middleware/auth');
 
 // Usuarios y Rectificaciones
 router.get('/usuarios', requireManager, controller.listarUsuarios);
@@ -24,7 +24,14 @@ router.get('/tareas', controller.listarTareas);
 router.post('/tareas', controller.guardarTarea);
 router.delete('/tareas/:id', controller.eliminarTarea);
 router.get('/calendario', controller.listarCalendario);
-router.get('/configuraciones', controller.leerConfiguracion);
-router.put('/configuraciones', controller.guardarConfiguracion);
+router.get('/configuraciones', requireManager, controller.leerConfiguracion);
+router.put('/configuraciones', requireManager, controller.guardarConfiguracion);
+router.post('/categorias', requireManager, controller.crearCategoria);
+router.put('/categorias/:id', requireManager, controller.modificarCategoria);
+router.delete('/categorias/:id', requireManager, controller.eliminarCategoria);
+router.get('/infraestructura/inventario', requireInfrastructure, controller.listarInventario);
+router.post('/infraestructura/inventario', requireInfrastructure, controller.guardarActivo);
+router.put('/infraestructura/inventario/:id', requireInfrastructure, controller.guardarActivo);
+router.delete('/infraestructura/inventario/:id', requireInfrastructure, controller.eliminarActivo);
 
 module.exports = router;
