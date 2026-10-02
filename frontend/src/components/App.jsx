@@ -25,6 +25,54 @@ const formatLocalDateTime = value => {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('es', { dateStyle: 'short', timeStyle: 'medium', hour12: false });
 };
 
+const crearFormularioEntrega = () => {
+  const date = new Date();
+  const fecha = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+  return { departamento_id: '', destinatario: '', fecha_entrega: fecha, observaciones: '', articulos: [{ articulo: '', cantidad: 1, detalles: '' }] };
+};
+
+const escaparHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[character]));
+
+const crearDocumentoEntrega = entrega => `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Constancia de entrega ${escaparHtml(entrega.id)}</title>
+  <style>
+    body { color: #17212b; font: 14px Arial, sans-serif; margin: 40px auto; max-width: 800px; padding: 0 28px; }
+    header { border-bottom: 3px solid #087e73; margin-bottom: 28px; padding-bottom: 16px; }
+    h1 { font-size: 24px; margin: 4px 0; }
+    .brand { color: #087e73; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .meta { display: grid; gap: 12px 24px; grid-template-columns: 1fr 1fr; margin: 24px 0; }
+    .label { color: #536170; display: block; font-size: 11px; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; }
+    table { border-collapse: collapse; margin-top: 24px; width: 100%; }
+    th, td { border-bottom: 1px solid #ccd4da; padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { background: #f1f5f5; font-size: 11px; text-transform: uppercase; }
+    .notes { border-top: 1px solid #ccd4da; margin-top: 24px; padding-top: 12px; }
+    .signatures { display: grid; gap: 48px; grid-template-columns: 1fr 1fr; margin-top: 88px; }
+    .signature { border-top: 1px solid #536170; padding-top: 8px; text-align: center; }
+    @media print { body { margin: 0; max-width: none; padding: 0; } }
+  </style>
+</head>
+<body>
+  <header><div class="brand">SGTI · Infraestructura</div><h1>Constancia de entrega</h1><div>Folio #${escaparHtml(entrega.id)}</div></header>
+  <div class="meta">
+    <div><span class="label">Fecha de entrega</span>${escaparHtml(entrega.fecha_entrega)}</div>
+    <div><span class="label">Departamento</span>${escaparHtml(entrega.departamento_nombre)}</div>
+    <div><span class="label">Recibe</span>${escaparHtml(entrega.destinatario)}</div>
+    <div><span class="label">Entrega</span>${escaparHtml(entrega.entregado_por_nombre)}</div>
+  </div>
+  <table><thead><tr><th>Artículo</th><th>Cantidad</th><th>Detalles</th></tr></thead><tbody>
+    ${(entrega.articulos || []).map(item => `<tr><td>${escaparHtml(item.articulo)}</td><td>${escaparHtml(item.cantidad)}</td><td>${escaparHtml(item.detalles || '—')}</td></tr>`).join('')}
+  </tbody></table>
+  ${entrega.observaciones ? `<div class="notes"><span class="label">Observaciones</span>${escaparHtml(entrega.observaciones)}</div>` : ''}
+  <div class="signatures"><div class="signature">Recibí conforme · ${escaparHtml(entrega.destinatario)}</div><div class="signature">Entregó · ${escaparHtml(entrega.entregado_por_nombre)}</div></div>
+</body>
+</html>`;
+
 const etiquetaEstadoTicket = estado => ({
   nuevo: 'Nuevo', abierto: 'Abierto', en_proceso: 'En proceso', resuelto: 'Resuelto', vencido: 'Vencido'
 }[estado] || estado || 'Sin estado');
@@ -44,6 +92,14 @@ export default function App() {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [seccionesAbiertas, setSeccionesAbiertas] = useState({
+    principal: false,
+    tickets: false,
+    administracion: false,
+    planificacion: false,
+    infraestructura: false,
+    referencia: false
+  });
   const [activeTab, setActiveTab] = useState('dashboard');
   const [busqueda, setBusqueda] = useState('');
   const [ticketSeleccionado, setTicketSeleccionado] = useState(null);
@@ -60,6 +116,9 @@ export default function App() {
     { id: 'redes', nombre: 'Redes' }, { id: 'gps', nombre: 'GPS / Rutas' }
   ]);
   const [inventario, setInventario] = useState([]);
+  const [entregas, setEntregas] = useState([]);
+  const [formEntrega, setFormEntrega] = useState(crearFormularioEntrega);
+  const [guardandoEntrega, setGuardandoEntrega] = useState(false);
   const [eficienciaAdmins, setEficienciaAdmins] = useState([]);
   const [tareas, setTareas] = useState([]);
   const [proyectos, setProyectos] = useState([]);
@@ -260,10 +319,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!currentUser || currentUser.rol !== 'admin_infra' || activeTab !== 'inventario') return undefined;
-    const cargarInventario = () => apiFetch(API_BASE_URL, '/api/admin/infraestructura/inventario')
+    if (!currentUser || currentUser.rol !== 'admin_infra' || !['inventario', 'entregas'].includes(activeTab)) return undefined;
+    apiFetch(API_BASE_URL, '/api/admin/infraestructura/inventario')
       .then(res => res.json()).then(data => { if (data.success) setInventario(data.data); }).catch(() => {});
-    cargarInventario();
+    apiFetch(API_BASE_URL, '/api/admin/infraestructura/entregas')
+      .then(res => res.json()).then(data => { if (data.success) setEntregas(data.data); }).catch(() => {});
     return undefined;
   }, [currentUser, activeTab]);
 
@@ -356,11 +416,55 @@ export default function App() {
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
     setActiveTab('dashboard');
+    setSeccionesAbiertas({ principal: false, tickets: false, administracion: false, planificacion: false, infraestructura: false, referencia: false });
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('sgti_user');
+  };
+
+  const guardarListaEntrega = event => {
+    event.preventDefault();
+    setGuardandoEntrega(true);
+    apiFetch(API_BASE_URL, '/api/admin/infraestructura/entregas', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...formEntrega,
+        departamento_id: Number(formEntrega.departamento_id),
+        articulos: formEntrega.articulos.map(item => ({ ...item, cantidad: Number(item.cantidad) }))
+      })
+    }).then(res => res.json()).then(data => {
+      if (!data.success) throw new Error(data.message || 'No se pudo guardar la entrega.');
+      setEntregas(actual => [data.data, ...actual]);
+      setFormEntrega(crearFormularioEntrega());
+      mostrarAviso('Entrega guardada.');
+    }).catch(error => mostrarAviso(error.message, 'error')).finally(() => setGuardandoEntrega(false));
+  };
+
+  const descargarReporteEntrega = entrega => {
+    const archivo = new Blob([crearDocumentoEntrega(entrega)], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(archivo);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = `constancia-entrega-${entrega.id}.html`;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const imprimirReporteEntrega = entrega => {
+    const ventana = window.open('', '_blank');
+    if (!ventana) {
+      mostrarAviso('El navegador bloqueó la ventana de impresión.', 'error');
+      return;
+    }
+    ventana.document.open();
+    ventana.document.write(crearDocumentoEntrega(entrega));
+    ventana.document.close();
+    ventana.focus();
+    ventana.print();
   };
 
   // Crear Ticket (Usuarios Básicos)
@@ -448,17 +552,29 @@ export default function App() {
   const etiquetasSeccion = {
     dashboard: 'Dashboard', crear_ticket: 'Crear ticket', todos_tickets: 'Tickets de todos', asignaciones: 'Asignación de tickets',
     historial: 'Historial', usuarios: 'Gestión de usuarios', categorias: 'Gestión de categorías', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
-    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento'
+    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento', entregas: 'Entrega de artículos'
   };
   const estilosGrupoNav = {
     principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', punto: 'bg-slate-500', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
     tickets: { fondo: 'bg-sky-50', titulo: 'text-sky-800', punto: 'bg-sky-600', activo: 'border-sky-600 bg-sky-50 text-sky-900' },
     administracion: { fondo: 'bg-emerald-50', titulo: 'text-emerald-800', punto: 'bg-emerald-600', activo: 'border-emerald-600 bg-emerald-50 text-emerald-900' },
     planificacion: { fondo: 'bg-amber-50', titulo: 'text-amber-800', punto: 'bg-amber-600', activo: 'border-amber-600 bg-amber-50 text-amber-900' },
-    infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', punto: 'bg-teal-600', activo: 'border-teal-600 bg-teal-50 text-teal-900' }
+    infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', punto: 'bg-teal-600', activo: 'border-teal-600 bg-teal-50 text-teal-900' },
+    referencia: { fondo: 'bg-slate-50', titulo: 'text-slate-700', punto: 'bg-slate-500', activo: 'border-slate-500 bg-slate-100 text-slate-900' }
   };
   const claseNav = (tab, grupo) => `w-full flex items-center gap-3 rounded-md border-l-2 px-3 py-2.5 font-medium transition ${activeTab === tab ? estilosGrupoNav[grupo].activo : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
-  const tituloNav = (texto, grupo) => <p className={`mx-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}><span className={`h-1.5 w-1.5 rounded-full ${estilosGrupoNav[grupo].punto}`} aria-hidden="true" />{texto}</p>;
+  const tituloNav = (texto, grupo) => <button
+    type="button"
+    id={`nav-heading-${grupo}`}
+    aria-expanded={seccionesAbiertas[grupo]}
+    aria-controls={`nav-section-${grupo}`}
+    onClick={() => setSeccionesAbiertas(actual => ({ ...actual, [grupo]: !actual[grupo] }))}
+    className={`mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}
+  >
+    <span className={`h-1.5 w-1.5 rounded-full ${estilosGrupoNav[grupo].punto}`} aria-hidden="true" />
+    <span>{texto}</span>
+    <span className="ml-auto text-sm" aria-hidden="true">{seccionesAbiertas[grupo] ? '-' : '+'}</span>
+  </button>;
   const ticketsAsignados = currentUser?.isAdmin
     ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
     : [];
@@ -493,7 +609,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
       
       {/* BARRA LATERAL DINÁMICA */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white text-slate-600 border-r border-slate-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} transition-transform duration-300 ease-in-out flex flex-col`}>
+      <aside id="sgti-sidebar" className={`fixed inset-y-0 left-0 z-50 w-64 bg-white text-slate-600 border-r border-slate-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} transition-transform duration-300 ease-in-out flex flex-col`}>
         <div className="p-5 border-b border-slate-100 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-extrabold text-slate-900">SGTI</h2>
@@ -504,23 +620,26 @@ export default function App() {
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
           {tituloNav('Principal', 'principal')}
-          <button
-            onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
-            className={claseNav('dashboard', 'principal')}
-          >
-            Dashboard
-          </button>
+          <div id="nav-section-principal" aria-labelledby="nav-heading-principal" hidden={!seccionesAbiertas.principal}>
+            <button
+              onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
+              className={claseNav('dashboard', 'principal')}
+            >
+              Dashboard
+            </button>
 
-          <button
-            onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
-            className={claseNav('chat', 'principal')}
-          >
-            Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
-          </button>
+            <button
+              onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
+              className={claseNav('chat', 'principal')}
+            >
+              Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
+            </button>
+          </div>
 
           {tituloNav('Atención de tickets', 'tickets')}
-          {currentUser.isAdmin ? (
-            <>
+          <div id="nav-section-tickets" aria-labelledby="nav-heading-tickets" hidden={!seccionesAbiertas.tickets}>
+            {currentUser.isAdmin ? (
+              <>
               <button
                 onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
                 className={claseNav('crear_ticket', 'tickets')}
@@ -545,24 +664,56 @@ export default function App() {
               >
                 Historial de tickets
               </button>
-              {tituloNav('Administración', 'administracion')}
-              {currentUser.rol === 'gerente_it' && <button
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
+                  className={claseNav('crear_ticket', 'tickets')}
+                >
+                  Crear ticket
+                </button>
+                <button
+                  onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
+                  className={claseNav('mis_tickets', 'tickets')}
+                >
+                  Mis tickets
+                </button>
+                <button
+                  onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
+                  className={claseNav('encuesta', 'tickets')}
+                >
+                  Encuesta de satisfacción
+                </button>
+              </>
+            )}
+          </div>
+
+          {currentUser.rol === 'gerente_it' && <>
+            {tituloNav('Administración', 'administracion')}
+            <div id="nav-section-administracion" aria-labelledby="nav-heading-administracion" hidden={!seccionesAbiertas.administracion}>
+              <button
                 onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
                 className={claseNav('usuarios', 'administracion')}
               >
                 Gestión de usuarios
-              </button>}
-              {currentUser.rol === 'gerente_it' && <button
+              </button>
+              <button
                 onClick={() => { setActiveTab('categorias'); setSidebarOpen(false); }}
                 className={claseNav('categorias', 'administracion')}
               >
                 Gestión de categorías
-              </button>}
-              {currentUser.rol === 'gerente_it' && <button
+              </button>
+              <button
                 onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
                 className={claseNav('configuracion', 'administracion')}
-              >Configuración</button>}
-              {tituloNav('Planificación', 'planificacion')}
+              >Configuración</button>
+            </div>
+          </>}
+
+          {currentUser.isAdmin && <>
+            {tituloNav('Planificación', 'planificacion')}
+            <div id="nav-section-planificacion" aria-labelledby="nav-heading-planificacion" hidden={!seccionesAbiertas.planificacion}>
               <button 
                 onClick={() => { setActiveTab('calendario'); setSidebarOpen(false); }}
                 className={claseNav('calendario', 'planificacion')}
@@ -581,36 +732,29 @@ export default function App() {
               >
                 Proyectos de IT
               </button>
-              {currentUser.rol === 'admin_infra' && tituloNav('Infraestructura', 'infraestructura')}
-              {currentUser.rol === 'admin_infra' && <button
+            </div>
+          </>}
+
+          {currentUser.rol === 'admin_infra' && <>
+            {tituloNav('Infraestructura', 'infraestructura')}
+            <div id="nav-section-infraestructura" aria-labelledby="nav-heading-infraestructura" hidden={!seccionesAbiertas.infraestructura}>
+              <button
                 onClick={() => { setActiveTab('inventario'); setSidebarOpen(false); }}
                 className={claseNav('inventario', 'infraestructura')}
-              >Inventario por departamento</button>}
-            </>
-          ) : (
-            <>
-              <button 
-                onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
-                className={claseNav('crear_ticket', 'tickets')}
-              >
-                Crear ticket
-              </button>
-              <button 
-                onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
-                className={claseNav('mis_tickets', 'tickets')}
-              >
-                Mis tickets
-              </button>
-              <button 
-                onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
-                className={claseNav('encuesta', 'tickets')}
-              >
-                Encuesta de satisfacción
-              </button>
-            </>
-          )}
+              >Inventario por departamento</button>
+              <button
+                onClick={() => { setActiveTab('entregas'); setSidebarOpen(false); }}
+                className={claseNav('entregas', 'infraestructura')}
+              >Entrega de artículos</button>
+            </div>
+          </>}
 
-          {currentUser.isAdmin && <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={claseNav('apis', 'administracion')}>Referencia de API</button>}
+          {currentUser.isAdmin && <>
+            {tituloNav('Referencia', 'referencia')}
+            <div id="nav-section-referencia" aria-labelledby="nav-heading-referencia" hidden={!seccionesAbiertas.referencia}>
+              <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={claseNav('apis', 'administracion')}>Referencia de API</button>
+            </div>
+          </>}
         </nav>
 
         <div className="p-4 border-t border-slate-100 bg-white">
@@ -628,7 +772,16 @@ export default function App() {
       {/* CONTENIDO PRINCIPAL */}
       <div className={`flex-1 flex flex-col min-w-0 transition-[margin] duration-300 ${sidebarCollapsed ? '' : 'md:ml-64'}`}>
         <header className="bg-white border-b border-slate-200 min-h-16 flex flex-wrap items-center justify-between gap-3 px-6 py-3 sticky top-0 z-40">
-          <button onClick={() => { if (window.innerWidth < 768) setSidebarOpen(true); else setSidebarCollapsed(!sidebarCollapsed); }} className="text-sm text-slate-700 font-semibold">{sidebarCollapsed ? 'Mostrar menú' : 'Ocultar menú'}</button>
+          <button
+            type="button"
+            aria-label="Alternar menú de navegación"
+            aria-controls="sgti-sidebar"
+            onClick={() => { if (window.innerWidth < 768) setSidebarOpen(true); else setSidebarCollapsed(!sidebarCollapsed); }}
+            className="flex h-10 w-10 items-center justify-center rounded text-xl text-slate-700 hover:bg-slate-100"
+          >
+            <span className="md:hidden" aria-hidden="true">{sidebarOpen ? '←' : '→'}</span>
+            <span className="hidden md:inline" aria-hidden="true">{sidebarCollapsed ? '→' : '←'}</span>
+          </button>
           <div className="text-sm font-bold text-slate-700">{etiquetasSeccion[activeTab] || 'Inicio'}</div>
           {(activeTab === 'todos_tickets' || activeTab === 'mis_tickets' || activeTab === 'historial' || activeTab === 'asignaciones') && <input type="search" aria-label="Buscar tickets" placeholder="Buscar ticket..." value={busqueda} onChange={event => setBusqueda(event.target.value)} className="w-full sm:w-64 px-3 py-2 border border-slate-300 rounded text-sm" />}
           <div className="text-xs bg-slate-100 px-3 py-1 rounded-full font-semibold border">{currentUser.area}</div>
@@ -1235,6 +1388,79 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+            </section>
+          )}
+
+          {activeTab === 'entregas' && currentUser.rol === 'admin_infra' && (
+            <section className="space-y-6">
+              <div>
+                <p className="text-xs font-bold uppercase text-teal-700">Infraestructura</p>
+                <h2 className="mt-1 text-xl font-bold text-slate-900">Entrega de artículos</h2>
+              </div>
+              <form onSubmit={guardarListaEntrega} className="space-y-5 rounded-lg border border-slate-200 bg-white p-4">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <label className="text-xs font-semibold text-slate-600">Departamento
+                    <select required value={formEntrega.departamento_id} onChange={event => setFormEntrega({ ...formEntrega, departamento_id: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800">
+                      <option value="">Seleccione departamento</option>
+                      {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-600">Persona que recibe
+                    <input required maxLength="160" value={formEntrega.destinatario} onChange={event => setFormEntrega({ ...formEntrega, destinatario: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-600">Fecha de entrega
+                    <input type="date" required value={formEntrega.fecha_entrega} onChange={event => setFormEntrega({ ...formEntrega, fecha_entrega: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-600 sm:col-span-2 lg:col-span-1">Observaciones
+                    <input maxLength="3000" value={formEntrega.observaciones} onChange={event => setFormEntrega({ ...formEntrega, observaciones: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                  </label>
+                </div>
+
+                <fieldset className="space-y-3 border-t border-slate-200 pt-4">
+                  <legend className="px-1 text-sm font-bold text-slate-800">Artículos</legend>
+                  {formEntrega.articulos.map((item, index) => <div key={index} className="grid items-end gap-3 border-b border-slate-100 pb-3 sm:grid-cols-[minmax(0,2fr)_100px_minmax(0,2fr)_auto]">
+                    <label className="text-xs font-semibold text-slate-600">Artículo o modelo
+                      <input required maxLength="160" value={item.articulo} onChange={event => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.map((articulo, articuloIndex) => articuloIndex === index ? { ...articulo, articulo: event.target.value } : articulo) }))} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Cantidad
+                      <input type="number" min="1" step="1" required value={item.cantidad} onChange={event => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.map((articulo, articuloIndex) => articuloIndex === index ? { ...articulo, cantidad: event.target.value } : articulo) }))} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Detalles
+                      <input maxLength="1000" value={item.detalles} onChange={event => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.map((articulo, articuloIndex) => articuloIndex === index ? { ...articulo, detalles: event.target.value } : articulo) }))} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                    </label>
+                    <button type="button" disabled={formEntrega.articulos.length === 1} onClick={() => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.filter((_, articuloIndex) => articuloIndex !== index) }))} className="rounded-md px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">Quitar</button>
+                  </div>)}
+                  <button type="button" onClick={() => setFormEntrega(actual => ({ ...actual, articulos: [...actual.articulos, { articulo: '', cantidad: 1, detalles: '' }] }))} className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Agregar artículo</button>
+                </fieldset>
+                <button type="submit" disabled={guardandoEntrega} className="rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60">
+                  {guardandoEntrega ? 'Guardando...' : 'Guardar entrega'}
+                </button>
+              </form>
+
+              <section className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-base font-bold text-slate-900">Entregas registradas</h3>
+                  <span className="text-sm text-slate-500">{entregas.length} registros</span>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Recibe</th><th className="px-4 py-3">Departamento</th><th className="px-4 py-3">Artículos</th><th className="px-4 py-3">Reporte</th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {entregas.map(entrega => <tr key={entrega.id}>
+                        <td className="whitespace-nowrap px-4 py-3">{entrega.fecha_entrega}</td>
+                        <td className="px-4 py-3 font-medium">{entrega.destinatario}</td>
+                        <td className="px-4 py-3">{entrega.departamento_nombre}</td>
+                        <td className="px-4 py-3">{entrega.articulos.length}</td>
+                        <td className="px-4 py-3"><div className="flex gap-3">
+                          <button type="button" onClick={() => descargarReporteEntrega(entrega)} className="font-semibold text-teal-800 hover:underline">Descargar</button>
+                          <button type="button" onClick={() => imprimirReporteEntrega(entrega)} className="font-semibold text-slate-700 hover:underline">Imprimir</button>
+                        </div></td>
+                      </tr>)}
+                      {!entregas.length && <tr><td colSpan="5" className="px-4 py-10 text-center text-slate-500">Todavía no hay entregas registradas.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </section>
           )}
 

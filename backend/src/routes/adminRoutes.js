@@ -35,5 +35,7 @@ router.get('/infraestructura/inventario', requireInfrastructure, controller.list
 router.post('/infraestructura/inventario', requireInfrastructure, controller.guardarActivo);
 router.put('/infraestructura/inventario/:id', requireInfrastructure, controller.guardarActivo);
 router.delete('/infraestructura/inventario/:id', requireInfrastructure, controller.eliminarActivo);
+router.get('/infraestructura/entregas', requireInfrastructure, controller.listarEntregas);
+router.post('/infraestructura/entregas', requireInfrastructure, controller.guardarEntrega);
 
 module.exports = router;

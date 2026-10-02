@@ -47,7 +47,7 @@ SGTI/
 | `backend/src/middleware/auth.js` | Firma y valida tokens HMAC, comprueba que el usuario siga activo en la base de datos y ofrece la protección por rol administrativo. |
 | `backend/src/routes/authRoutes.js` | Declara la consulta pública de áreas, el registro y el inicio de sesión. |
 | `backend/src/routes/ticketRoutes.js` | Declara operaciones autenticadas de tickets, historial, encuestas, asignación, resolución y mensajes. |
-| `backend/src/routes/adminRoutes.js` | Declara operaciones de administración de usuarios, tickets, tareas, proyectos, calendario y configuración. |
+| `backend/src/routes/adminRoutes.js` | Declara operaciones de administración de usuarios, tickets, tareas, proyectos, calendario, configuración, inventario y entregas de infraestructura. |
 | `backend/src/routes/chatRoutes.js` | Declara conversaciones directas y mensajes asociados a tickets. |
 | `backend/src/controllers/authController.js` | Lista áreas disponibles, normaliza credenciales, autentica, registra usuarios finales con un área válida, almacena contraseñas con `scrypt` y actualiza contraseñas heredadas al iniciar sesión. |
 | `backend/src/controllers/ticketAdvancedController.js` | Implementa lectura y creación de tickets, historial, encuestas, asignación, resolución y mensajes por ticket. |
@@ -55,10 +55,11 @@ SGTI/
 | `backend/src/controllers/chatController.js` | Lee y envía mensajes dentro de un ticket, comprobando acceso del solicitante o de un administrador. |
 | `backend/src/controllers/directChatController.js` | Lista administradores y conversaciones directas, crea conversaciones al enviar mensajes y marca mensajes recibidos como leídos. |
 | `backend/scripts/bootstrap-admins.js` | Provisiona las cuatro cuentas administrativas a partir de variables de entorno, comprobando las áreas y usando una transacción. |
-| `backend/scripts/migrate-helpdesk.js` | Aplica en PostgreSQL la migración del catálogo de categorías y el inventario por departamento. |
+| `backend/scripts/migrate-helpdesk.js` | Aplica en PostgreSQL las migraciones del catálogo, inventario y registros de entrega de infraestructura. |
 | `backend/migrations/001_direct_chat.sql` | DDL de conversaciones directas y mensajes directos, incluidas sus restricciones e índice. |
 | `backend/migrations/002_ticket_followup.sql` | Agrega a `tickets` los campos usados para fecha estimada, causa externa y actualización pública. |
 | `backend/migrations/003_helpdesk_catalog_inventory.sql` | Crea el catálogo de categorías, sus opciones iniciales y el inventario por departamento. |
+| `backend/migrations/004_infrastructure_deliveries.sql` | Crea los registros persistentes de entrega y sus artículos, conservando departamento y usuario como datos históricos. |
 | `backend/prisma/schema.prisma` | Describe dos modelos Prisma, `Ticket` e `HistorialTicketLog`. No describe toda la base que consulta la aplicación. |
 | `backend/prisma.config.ts` | Configuración de Prisma para sincronizar instrucciones/skills de herramientas de desarrollo. No define el esquema PostgreSQL operativo. |
 | `backend/package.json` | Dependencias y comandos del backend. El script de ejecución apunta a `src/index.js`. |

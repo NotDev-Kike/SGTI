@@ -2,6 +2,18 @@ const db = require('../config/db');
 const { hashPassword } = require('./authController');
 const emailService = require('../services/emailService');
 const rolesPermitidos = ['usuario_final', 'gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+const consultaEntregas = `
+  SELECT e.id, e.departamento_id, e.departamento_nombre, e.destinatario,
+         to_char(e.fecha_entrega, 'YYYY-MM-DD') AS fecha_entrega,
+         e.observaciones, e.created_at, e.entregado_por_nombre,
+         COALESCE(
+           json_agg(json_build_object('id', a.id, 'articulo', a.articulo, 'cantidad', a.cantidad, 'detalles', a.detalles) ORDER BY a.id)
+             FILTER (WHERE a.id IS NOT NULL),
+           '[]'::json
+         ) AS articulos
+  FROM entregas_infraestructura e
+  LEFT JOIN entregas_infraestructura_articulos a ON a.entrega_id = e.id
+`;
 
 exports.listarUsuarios = async (req, res) => {
   try {
@@ -152,6 +164,74 @@ exports.eliminarActivo = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.listarEntregas = async (_req, res) => {
+  try {
+    const { rows } = await db.query(`${consultaEntregas} GROUP BY e.id ORDER BY e.fecha_entrega DESC, e.id DESC`);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.guardarEntrega = async (req, res) => {
+  const { departamento_id, destinatario, fecha_entrega, observaciones, articulos } = req.body;
+  const departmentId = Number(departamento_id);
+  const recipient = typeof destinatario === 'string' ? destinatario.trim() : '';
+  const notes = typeof observaciones === 'string' ? observaciones.trim() : '';
+  const deliveryDate = typeof fecha_entrega === 'string' ? fecha_entrega : '';
+  const fecha = new Date(`${deliveryDate}T00:00:00.000Z`);
+  const fechaValida = /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)
+    && !Number.isNaN(fecha.getTime())
+    && fecha.toISOString().slice(0, 10) === deliveryDate;
+  const articulosValidos = Array.isArray(articulos) && articulos.length > 0 && articulos.length <= 100
+    && articulos.every(item => item && typeof item.articulo === 'string' && item.articulo.trim() && item.articulo.trim().length <= 160
+      && Number.isInteger(Number(item.cantidad)) && Number(item.cantidad) > 0
+      && (item.detalles == null || (typeof item.detalles === 'string' && item.detalles.length <= 1000)));
+
+  if (!Number.isInteger(departmentId) || departmentId < 1 || !recipient || recipient.length > 160
+    || !fechaValida || (typeof observaciones !== 'string' && observaciones != null) || notes.length > 3000 || !articulosValidos) {
+    return res.status(400).json({ success: false, message: 'Revise departamento, destinatario, fecha y artículos de la entrega.' });
+  }
+
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await db.connect();
+    await client.query('BEGIN');
+    transactionStarted = true;
+    const { rows: departamentosEntrega } = await client.query('SELECT nombre FROM departamentos WHERE id = $1', [departmentId]);
+    if (!departamentosEntrega.length) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: 'El departamento seleccionado no existe.' });
+    }
+    const { rows: usuariosEntrega } = await client.query('SELECT nombre FROM usuarios WHERE id = $1', [req.user.id]);
+    const { rows: entregasCreadas } = await client.query(
+      `INSERT INTO entregas_infraestructura
+        (departamento_id, departamento_nombre, destinatario, fecha_entrega, observaciones, entregado_por_id, entregado_por_nombre)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [departmentId, departamentosEntrega[0].nombre, recipient, deliveryDate, notes || null, req.user.id, usuariosEntrega[0]?.nombre || req.user.email]
+    );
+    const entregaId = entregasCreadas[0].id;
+    for (const articulo of articulos) {
+      await client.query(
+        `INSERT INTO entregas_infraestructura_articulos (entrega_id, articulo, cantidad, detalles)
+         VALUES ($1, $2, $3, $4)`,
+        [entregaId, articulo.articulo.trim(), Number(articulo.cantidad), typeof articulo.detalles === 'string' ? articulo.detalles.trim() || null : null]
+      );
+    }
+    await client.query('COMMIT');
+    transactionStarted = false;
+    const { rows } = await db.query(`${consultaEntregas} WHERE e.id = $1 GROUP BY e.id`, [entregaId]);
+    res.status(201).json({ success: true, data: rows[0] });
+  } catch (error) {
+    if (transactionStarted && client) await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (client) client.release();
   }
 };
 
