@@ -26,6 +26,8 @@ router.delete('/tareas/:id', controller.eliminarTarea);
 router.get('/calendario', controller.listarCalendario);
 router.get('/configuraciones', requireManager, controller.leerConfiguracion);
 router.put('/configuraciones', requireManager, controller.guardarConfiguracion);
+router.get('/configuraciones/correo/estado', requireManager, controller.estadoCorreo);
+router.post('/configuraciones/correo/prueba', requireManager, controller.enviarCorreoPrueba);
 router.post('/categorias', requireManager, controller.crearCategoria);
 router.put('/categorias/:id', requireManager, controller.modificarCategoria);
 router.delete('/categorias/:id', requireManager, controller.eliminarCategoria);

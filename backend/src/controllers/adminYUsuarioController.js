@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { hashPassword } = require('./authController');
+const emailService = require('../services/emailService');
 const rolesPermitidos = ['usuario_final', 'gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
 
 exports.listarUsuarios = async (req, res) => {
@@ -243,6 +244,14 @@ exports.guardarConfiguracion = async (req, res) => {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
     return res.status(400).json({ success: false, message: 'Configuración inválida.' });
   }
+  if (Object.prototype.hasOwnProperty.call(settings, 'alertas_destinatarios')) {
+    const inputRecipients = String(settings.alertas_destinatarios || '').split(/[\s,;]+/).filter(Boolean);
+    const recipients = emailService.parseRecipients(settings.alertas_destinatarios);
+    if (inputRecipients.some(email => !emailService.EMAIL_PATTERN.test(email)) || recipients.length > 25) {
+      return res.status(400).json({ success: false, message: 'Revise los correos; se permiten hasta 25 direcciones válidas.' });
+    }
+    settings.alertas_destinatarios = recipients.join(',');
+  }
   let client;
   try {
     client = await db.connect();
@@ -260,6 +269,23 @@ exports.guardarConfiguracion = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   } finally {
     if (client) client.release();
+  }
+};
+
+exports.estadoCorreo = async (_req, res) => {
+  try {
+    res.json({ success: true, data: await emailService.getEmailStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.enviarCorreoPrueba = async (_req, res) => {
+  try {
+    const destinatarios = await emailService.enviarCorreoPrueba();
+    res.json({ success: true, message: `Correo de prueba enviado a ${destinatarios} destinatario(s).` });
+  } catch (error) {
+    res.status(502).json({ success: false, message: error.message });
   }
 };
 

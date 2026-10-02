@@ -74,6 +74,19 @@ export default function App() {
   const [areaAsignacion, setAreaAsignacion] = useState({});
   const [formSeguimientos, setFormSeguimientos] = useState({});
   const [mesCalendario, setMesCalendario] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [dialogo, setDialogo] = useState(null);
+
+  const mostrarAviso = (mensaje, tipo = 'success') => setDialogo({ tipo, mensaje });
+  const confirmarAccion = (mensaje, accion) => setDialogo({ tipo: 'confirm', mensaje, accion });
+
+  useEffect(() => {
+    if (!dialogo) return undefined;
+    const cerrarConEscape = event => {
+      if (event.key === 'Escape' && dialogo.tipo !== 'confirm') setDialogo(null);
+    };
+    window.addEventListener('keydown', cerrarConEscape);
+    return () => window.removeEventListener('keydown', cerrarConEscape);
+  }, [dialogo]);
 
   // Estados de formularios
   const [formTicket, setFormTicket] = useState({
@@ -93,7 +106,10 @@ export default function App() {
   const [formTarea, setFormTarea] = useState({ id: null, titulo: '', descripcion: '', asignado_a_id: '', fecha_limite: '', estado: 'pendiente' });
   const [formProyecto, setFormProyecto] = useState({ id: null, titulo: '', descripcion: '', estado: 'planificacion' });
   const [formEncuesta, setFormEncuesta] = useState({ ticket_id: '', calificacion: 5, comentario: '' });
-  const [configuracionSistema, setConfiguracionSistema] = useState({ modo_mantenimiento: false, alertas_email: true });
+  const [configuracionSistema, setConfiguracionSistema] = useState({ modo_mantenimiento: false, alertas_email: false });
+  const [emailDestinatarios, setEmailDestinatarios] = useState('');
+  const [estadoCorreo, setEstadoCorreo] = useState({ smtp_configurado: false, alertas_habilitadas: false, destinatarios: 0, hora_resumen: 8 });
+  const [enviandoPruebaCorreo, setEnviandoPruebaCorreo] = useState(false);
 
   useEffect(() => {
     if (!currentUser) return undefined;
@@ -229,9 +245,16 @@ export default function App() {
     if (currentUser?.rol === 'gerente_it') {
       apiFetch(API_BASE_URL, '/api/admin/configuraciones').then(res => res.json()).then(data => {
         if (data.success) {
-          const stored = Object.fromEntries(data.data.map(item => [item.clave, item.valor === 'true']));
-          setConfiguracionSistema({ modo_mantenimiento: false, alertas_email: true, ...stored });
+          const stored = Object.fromEntries(data.data.map(item => [item.clave, item.valor]));
+          setConfiguracionSistema({
+            modo_mantenimiento: stored.modo_mantenimiento === 'true',
+            alertas_email: stored.alertas_email === 'true'
+          });
+          setEmailDestinatarios(stored.alertas_destinatarios || '');
         }
+      }).catch(() => {});
+      apiFetch(API_BASE_URL, '/api/admin/configuraciones/correo/estado').then(res => res.json()).then(data => {
+        if (data.success) setEstadoCorreo(data.data);
       }).catch(() => {});
     }
   };
@@ -247,11 +270,23 @@ export default function App() {
   const enviarConfiguracion = () => {
     apiFetch(API_BASE_URL, '/api/admin/configuraciones', {
       method: 'PUT',
-      body: JSON.stringify(configuracionSistema)
+      body: JSON.stringify({ ...configuracionSistema, alertas_destinatarios: emailDestinatarios })
     }).then(res => res.json()).then(data => {
       if (!data.success) throw new Error(data.message || 'No se guardó la configuración.');
-      alert('Configuración guardada.');
-    }).catch(error => alert(error.message));
+      cargarDatosAdministrativos();
+      mostrarAviso('Configuración guardada.');
+    }).catch(error => mostrarAviso(error.message, 'error'));
+  };
+
+  const enviarCorreoPrueba = () => {
+    setEnviandoPruebaCorreo(true);
+    apiFetch(API_BASE_URL, '/api/admin/configuraciones/correo/prueba', {
+      method: 'POST',
+      body: JSON.stringify({})
+    }).then(res => res.json()).then(data => {
+      if (!data.success) throw new Error(data.message || 'No se pudo enviar el correo de prueba.');
+      mostrarAviso(data.message);
+    }).catch(error => mostrarAviso(error.message, 'error')).finally(() => setEnviandoPruebaCorreo(false));
   };
 
   const moverTicketAdmin = (ticket, nuevo_estado, nuevo_departamento_id, asignado_a_id, auto_asignar = false) => {
@@ -272,7 +307,7 @@ export default function App() {
     }).then(res => res.json()).then(data => {
       if (!data.success) throw new Error(data.message || 'No se pudo actualizar el ticket.');
       cargarDatosGlobales();
-    }).catch(error => alert(error.message));
+    }).catch(error => mostrarAviso(error.message, 'error'));
   };
 
   const moverTicketPorArea = (ticket, departamentoId) => {
@@ -300,7 +335,7 @@ export default function App() {
       return apiFetch(API_BASE_URL, `/api/chat/${ticketSeleccionado.id}/mensajes`).then(res => res.json());
     }).then(data => {
       if (Array.isArray(data)) setMensajesTicket(data);
-    }).catch(error => alert(error.message || 'No se pudo enviar el mensaje.'));
+    }).catch(error => mostrarAviso(error.message || 'No se pudo enviar el mensaje.', 'error'));
   };
 
   const editarTicketAdmin = () => {
@@ -315,7 +350,7 @@ export default function App() {
       setTicketEnEdicion(null);
       setTicketSeleccionado(current => current ? { ...current, ...ticketEnEdicion } : current);
       cargarDatosGlobales();
-    }).catch(error => alert(error.message));
+    }).catch(error => mostrarAviso(error.message, 'error'));
   };
 
   const handleLoginSuccess = (user) => {
@@ -342,11 +377,11 @@ export default function App() {
       .then(data => {
         if (!data.success) throw new Error(data.message || 'No se pudo crear el ticket.');
         cargarDatosGlobales();
-        alert(`Ticket clasificado como [${formTicket.tipo_solicitud.toUpperCase()}] creado con éxito.`);
+        mostrarAviso(`Ticket clasificado como [${formTicket.tipo_solicitud.toUpperCase()}] creado con éxito.`);
         setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'Hardware', departamento_destino_id: '', prioridad: 'media' });
         setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'mis_tickets');
       })
-      .catch(error => alert(error.message));
+      .catch(error => mostrarAviso(error.message, 'error'));
   };
 
   // Resolver Ticket (Admin)
@@ -361,9 +396,9 @@ export default function App() {
         if (!data.success) throw new Error(data.message || 'No se pudo resolver el ticket.');
         cargarDatosGlobales();
         cargarCalendario();
-        alert('Ticket resuelto y archivado en el historial.');
+        mostrarAviso('Ticket resuelto y archivado en el historial.');
       })
-      .catch(error => alert(error.message));
+      .catch(error => mostrarAviso(error.message, 'error'));
   };
 
   const actualizarFormularioSeguimiento = (ticketId, cambios) => {
@@ -376,7 +411,7 @@ export default function App() {
   const guardarSeguimientoTicket = ticket => {
     const formulario = formSeguimientos[ticket.id] || {};
     if (!formulario.mensaje?.trim()) {
-      alert('Escriba una actualización para el solicitante.');
+      mostrarAviso('Escriba una actualización para el solicitante.', 'error');
       return;
     }
     apiFetch(API_BASE_URL, `/api/admin/tickets/${ticket.id}/seguimiento`, {
@@ -397,8 +432,8 @@ export default function App() {
       } : actual);
       cargarDatosGlobales();
       if (formulario.resuelto) cargarCalendario();
-      alert(data.message);
-    }).catch(error => alert(error.message));
+      mostrarAviso(data.message);
+    }).catch(error => mostrarAviso(error.message, 'error'));
   };
 
   const misTickets = currentUser && !currentUser.isAdmin
@@ -412,9 +447,18 @@ export default function App() {
   };
   const etiquetasSeccion = {
     dashboard: 'Dashboard', crear_ticket: 'Crear ticket', todos_tickets: 'Tickets de todos', asignaciones: 'Asignación de tickets',
-    historial: 'Historial', usuarios: 'Gestión de usuarios', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
+    historial: 'Historial', usuarios: 'Gestión de usuarios', categorias: 'Gestión de categorías', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
     configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento'
   };
+  const estilosGrupoNav = {
+    principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', punto: 'bg-slate-500', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
+    tickets: { fondo: 'bg-sky-50', titulo: 'text-sky-800', punto: 'bg-sky-600', activo: 'border-sky-600 bg-sky-50 text-sky-900' },
+    administracion: { fondo: 'bg-emerald-50', titulo: 'text-emerald-800', punto: 'bg-emerald-600', activo: 'border-emerald-600 bg-emerald-50 text-emerald-900' },
+    planificacion: { fondo: 'bg-amber-50', titulo: 'text-amber-800', punto: 'bg-amber-600', activo: 'border-amber-600 bg-amber-50 text-amber-900' },
+    infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', punto: 'bg-teal-600', activo: 'border-teal-600 bg-teal-50 text-teal-900' }
+  };
+  const claseNav = (tab, grupo) => `w-full flex items-center gap-3 rounded-md border-l-2 px-3 py-2.5 font-medium transition ${activeTab === tab ? estilosGrupoNav[grupo].activo : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
+  const tituloNav = (texto, grupo) => <p className={`mx-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}><span className={`h-1.5 w-1.5 rounded-full ${estilosGrupoNav[grupo].punto}`} aria-hidden="true" />{texto}</p>;
   const ticketsAsignados = currentUser?.isAdmin
     ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
     : [];
@@ -446,124 +490,135 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex font-sans text-slate-800">
+    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
       
       {/* BARRA LATERAL DINÁMICA */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} transition-transform duration-300 ease-in-out flex flex-col shadow-xl`}>
-        <div className="p-5 border-b border-slate-800 flex justify-between items-center">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white text-slate-600 border-r border-slate-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} transition-transform duration-300 ease-in-out flex flex-col`}>
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-extrabold text-white">SGTI</h2>
-            <p className="text-xs text-blue-400 font-semibold">{currentUser.area}</p>
+            <h2 className="text-xl font-extrabold text-slate-900">SGTI</h2>
+            <p className="text-xs text-blue-700 font-semibold">{currentUser.area}</p>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">✕</button>
+          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">✕</button>
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
+          {tituloNav('Principal', 'principal')}
           <button
             onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+            className={claseNav('dashboard', 'principal')}
           >
             Dashboard
           </button>
 
           <button
             onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'chat' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+            className={claseNav('chat', 'principal')}
           >
             Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
           </button>
 
+          {tituloNav('Atención de tickets', 'tickets')}
           {currentUser.isAdmin ? (
             <>
               <button
                 onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'crear_ticket' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('crear_ticket', 'tickets')}
               >
                 Crear ticket
               </button>
               <button 
                 onClick={() => { setActiveTab('todos_tickets'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'todos_tickets' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('todos_tickets', 'tickets')}
               >
                 Tickets de todos ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
               </button>
                     {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('asignaciones'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'asignaciones' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('asignaciones', 'tickets')}
               >
                 Asignación de tickets
               </button>}
               <button 
                 onClick={() => { setActiveTab('historial'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'historial' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('historial', 'tickets')}
               >
                 Historial de tickets
               </button>
+              {tituloNav('Administración', 'administracion')}
               {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'usuarios' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('usuarios', 'administracion')}
               >
                 Gestión de usuarios
               </button>}
+              {currentUser.rol === 'gerente_it' && <button
+                onClick={() => { setActiveTab('categorias'); setSidebarOpen(false); }}
+                className={claseNav('categorias', 'administracion')}
+              >
+                Gestión de categorías
+              </button>}
+              {currentUser.rol === 'gerente_it' && <button
+                onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
+                className={claseNav('configuracion', 'administracion')}
+              >Configuración</button>}
+              {tituloNav('Planificación', 'planificacion')}
               <button 
                 onClick={() => { setActiveTab('calendario'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'calendario' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('calendario', 'planificacion')}
               >
                 Calendario
               </button>
               <button 
                 onClick={() => { setActiveTab('tareas'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'tareas' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('tareas', 'planificacion')}
               >
                 Tareas
               </button>
               <button 
                 onClick={() => { setActiveTab('proyectos'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'proyectos' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('proyectos', 'planificacion')}
               >
                 Proyectos de IT
               </button>
-              {currentUser.rol === 'gerente_it' && <button
-                onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'configuracion' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
-              >Configuración</button>}
+              {currentUser.rol === 'admin_infra' && tituloNav('Infraestructura', 'infraestructura')}
               {currentUser.rol === 'admin_infra' && <button
                 onClick={() => { setActiveTab('inventario'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'inventario' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('inventario', 'infraestructura')}
               >Inventario por departamento</button>}
             </>
           ) : (
             <>
               <button 
                 onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'crear_ticket' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('crear_ticket', 'tickets')}
               >
                 Crear ticket
               </button>
               <button 
                 onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'mis_tickets' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('mis_tickets', 'tickets')}
               >
                 Mis tickets
               </button>
               <button 
                 onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'encuesta' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
+                className={claseNav('encuesta', 'tickets')}
               >
                 Encuesta de satisfacción
               </button>
             </>
           )}
 
-          {currentUser.isAdmin && <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition ${activeTab === 'apis' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>Referencia de API</button>}
+          {currentUser.isAdmin && <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={claseNav('apis', 'administracion')}>Referencia de API</button>}
         </nav>
 
-        <div className="p-4 border-t border-slate-800 bg-slate-950">
+        <div className="p-4 border-t border-slate-100 bg-white">
           <div className="text-xs text-slate-400">Usuario Conectado:</div>
-          <div className="font-bold text-white truncate text-xs mb-2">{currentUser.email}</div>
+          <div className="font-bold text-slate-800 truncate text-xs mb-2">{currentUser.email}</div>
           <button 
             onClick={handleLogout}
-            className="w-full bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 text-xs font-semibold py-2 rounded-lg transition"
+            className="w-full bg-white hover:bg-red-50 text-red-700 border border-slate-200 hover:border-red-200 text-xs font-semibold py-2 rounded-md transition"
           >
             Cerrar Sesión
           </button>
@@ -572,7 +627,7 @@ export default function App() {
 
       {/* CONTENIDO PRINCIPAL */}
       <div className={`flex-1 flex flex-col min-w-0 transition-[margin] duration-300 ${sidebarCollapsed ? '' : 'md:ml-64'}`}>
-        <header className="bg-white border-b border-slate-200 min-h-16 flex flex-wrap items-center justify-between gap-3 px-6 py-3 sticky top-0 z-40 shadow-sm">
+        <header className="bg-white border-b border-slate-200 min-h-16 flex flex-wrap items-center justify-between gap-3 px-6 py-3 sticky top-0 z-40">
           <button onClick={() => { if (window.innerWidth < 768) setSidebarOpen(true); else setSidebarCollapsed(!sidebarCollapsed); }} className="text-sm text-slate-700 font-semibold">{sidebarCollapsed ? 'Mostrar menú' : 'Ocultar menú'}</button>
           <div className="text-sm font-bold text-slate-700">{etiquetasSeccion[activeTab] || 'Inicio'}</div>
           {(activeTab === 'todos_tickets' || activeTab === 'mis_tickets' || activeTab === 'historial' || activeTab === 'asignaciones') && <input type="search" aria-label="Buscar tickets" placeholder="Buscar ticket..." value={busqueda} onChange={event => setBusqueda(event.target.value)} className="w-full sm:w-64 px-3 py-2 border border-slate-300 rounded text-sm" />}
@@ -583,38 +638,38 @@ export default function App() {
           
           {/* DASHBOARD GENERAL */}
           {activeTab === 'dashboard' && (
-            <div className="space-y-6">
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+            <div className="space-y-5">
+              <div className="bg-white p-5 sm:p-6 rounded-lg border border-slate-200">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Helpdesk SGTI · Dashboard</p>
-                    <h1 className="mt-1 text-2xl font-extrabold text-slate-900">Hola, {currentUser.nombre || currentUser.email}</h1>
-                    <p className="mt-1 text-sm text-slate-500">Solicitudes de soporte y comunicación con IT, en un solo lugar.</p>
+                    <p className="text-xs font-semibold text-slate-500">ESPACIO DE TRABAJO · SGTI</p>
+                    <h1 className="mt-1 text-2xl font-bold text-slate-900">Hola, {currentUser.nombre || currentUser.email}</h1>
+                    <p className="mt-1 text-sm text-slate-500">Resumen de solicitudes y atención de IT.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setActiveTab('crear_ticket')} className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Crear solicitud</button>
-                    <button onClick={() => setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'chat')} className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">{currentUser.isAdmin ? 'Ver tickets' : 'Mensajes con IT'}</button>
+                    <button onClick={() => setActiveTab('crear_ticket')} className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">Crear solicitud</button>
+                    <button onClick={() => setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'chat')} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">{currentUser.isAdmin ? 'Ver tickets' : 'Mensajes con IT'}</button>
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                  <div className="text-xs text-slate-500 font-bold uppercase">Tickets Activos</div>
-                  <div className="text-3xl font-extrabold text-blue-600 mt-2">{tickets.length}</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-white px-4 py-3 rounded-lg border border-slate-200">
+                  <div className="text-xs text-slate-500 font-medium">Tickets activos</div>
+                  <div className="text-2xl font-bold text-slate-900 mt-1">{tickets.length}</div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                  <div className="text-xs text-slate-500 font-bold uppercase">Tickets vencidos</div>
-                  <div className="text-3xl font-extrabold text-red-600 mt-2">
+                <div className="bg-white px-4 py-3 rounded-lg border border-slate-200">
+                  <div className="text-xs text-slate-500 font-medium">Tickets vencidos</div>
+                  <div className="text-2xl font-bold text-red-700 mt-1">
                     {tickets.filter(t => t.semaforo_alerta === 'vencido').length}
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                  <div className="text-xs text-slate-500 font-bold uppercase">Historial Resueltos</div>
-                  <div className="text-3xl font-extrabold text-emerald-600 mt-2">{currentUser.isAdmin ? historial.length : ticketsResueltos.length}</div>
+                <div className="bg-white px-4 py-3 rounded-lg border border-slate-200">
+                  <div className="text-xs text-slate-500 font-medium">Solicitudes resueltas</div>
+                  <div className="text-2xl font-bold text-emerald-700 mt-1">{currentUser.isAdmin ? historial.length : ticketsResueltos.length}</div>
                 </div>
               </div>
               {currentUser.isAdmin ? (
-                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Bandeja de atención por usuario">
+                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" aria-label="Bandeja de atención por usuario">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
                     <div>
                       <h2 className="font-bold text-slate-900">Bandeja de atención</h2>
@@ -622,7 +677,7 @@ export default function App() {
                     </div>
                     <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">{usuariosHelpdesk.length} usuarios</span>
                   </div>
-                  <div className="grid min-h-[440px] md:grid-cols-[260px_minmax(0,1fr)]">
+                  <div className="grid min-h-[360px] md:grid-cols-[240px_minmax(0,1fr)]">
                     <div className="border-b border-slate-200 md:max-h-[680px] md:overflow-y-auto md:border-b-0 md:border-r">
                       {usuariosHelpdesk.map(usuario => {
                         const mensajesNuevos = Number(usuario.conversacion?.pendientes || 0);
@@ -688,7 +743,7 @@ export default function App() {
                   </div>
                 </section>
               ) : (
-                <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <section>
                   <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-bold text-slate-900">Mis solicitudes</h2><p className="mt-1 text-xs text-slate-500">Consulte el estado de sus solicitudes recientes.</p></div><button onClick={() => setActiveTab('mis_tickets')} className="text-xs font-semibold text-blue-700 hover:underline">Ver todas</button></div>
                     <div className="divide-y divide-slate-200">
@@ -699,20 +754,12 @@ export default function App() {
                       {!misTickets.length && <p className="py-8 text-center text-sm text-slate-500">Aún no tiene solicitudes. Cree una para comenzar.</p>}
                     </div>
                   </div>
-                  <button onClick={() => setActiveTab('chat')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50">
-                    <span className="text-xs font-bold uppercase text-blue-700">Soporte directo</span>
-                    <strong className="mt-2 block text-lg text-slate-900">Mensajes con IT</strong>
-                    <span className="mt-2 block text-sm text-slate-600">Consulte al equipo de soporte y continúe sus conversaciones.</span>
-                    <span className="mt-5 block text-sm font-semibold text-blue-700">Abrir conversación →</span>
-                  </button>
                 </section>
               )}
               {currentUser.isAdmin && (
-                <section className="bg-white border rounded-xl p-5 space-y-3">
-                  <div>
-                    <h2 className="font-bold text-slate-900">Resolución por responsable</h2>
-                    <p className="text-xs text-slate-500 mt-1">Resumen histórico de tickets asignados; es un dato de seguimiento, no un ranking.</p>
-                  </div>
+                <details className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                  <summary className="cursor-pointer px-5 py-4 font-bold text-slate-900">Métricas de resolución por responsable <span className="ml-2 text-xs font-normal text-slate-500">Seguimiento histórico, no un ranking</span></summary>
+                  <section className="space-y-3 border-t border-slate-200 p-5">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[620px] text-left text-sm">
                       <thead className="border-b text-xs uppercase text-slate-500">
@@ -732,11 +779,13 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
-                </section>
+                  </section>
+                </details>
               )}
               {currentUser.isAdmin && (
-                <section className="bg-white border rounded-xl p-5 space-y-4" aria-label="Avisos para este administrador">
-                  <h2 className="font-bold text-slate-900">Avisos para usted</h2>
+                <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" aria-label="Avisos para este administrador">
+                  <summary className="cursor-pointer px-5 py-4 font-bold text-slate-900">Avisos y actividad asignada <span className="ml-2 text-xs font-normal text-slate-500">{ticketsAsignados.length + mensajesPendientes} pendientes</span></summary>
+                  <section className="space-y-3 border-t border-slate-200 p-5">
                   {ticketsAsignados.map(ticket => (
                     <button key={`ticket-${ticket.id}`} onClick={() => setActiveTab('todos_tickets')} className="block w-full text-left border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm">
                       <strong>Ticket asignado:</strong> {ticket.titulo}
@@ -750,7 +799,8 @@ export default function App() {
                     </button>
                   ))}
                   {!ticketsAsignados.length && !mensajesPendientes && <p className="text-sm text-slate-500">No tiene tickets asignados ni mensajes nuevos.</p>}
-                </section>
+                  </section>
+                </details>
               )}
             </div>
           )}
@@ -932,7 +982,7 @@ export default function App() {
                     if (!data.success) throw new Error(data.message || 'No se pudo guardar el usuario.');
                     setFormUsuario({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: null, activo: true });
                     cargarDatosAdministrativos();
-                  }).catch(error => alert(error.message));
+                  }).catch(error => mostrarAviso(error.message, 'error'));
               }} className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-b pb-5">
                 <input aria-label="Nombre" placeholder="Nombre completo" required value={formUsuario.nombre} onChange={e => setFormUsuario({ ...formUsuario, nombre: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input aria-label="Correo" type="email" placeholder="Correo" required value={formUsuario.email} onChange={e => setFormUsuario({ ...formUsuario, email: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
@@ -965,13 +1015,13 @@ export default function App() {
                   <div><strong>{usuario.nombre}</strong><div className="text-xs text-slate-500">{usuario.email} · {usuario.departamento_nombre || 'Sin área'} · {usuario.rol}{usuario.activo ? '' : ' · Inactivo'}</div></div>
                   <div className="flex gap-2">
                     <button onClick={() => setFormUsuario({ id: usuario.id, nombre: usuario.nombre, email: usuario.email, password: '', rol: usuario.rol, departamento_id: usuario.departamento_id, activo: usuario.activo })} className="border px-3 py-1.5 rounded text-xs">Editar</button>
-                    <button onClick={() => {
-                      if (!window.confirm(`¿Eliminar a ${usuario.nombre}?`)) return;
+                    <button onClick={() => confirmarAccion(`¿Eliminar a ${usuario.nombre}?`, () => {
                       apiFetch(API_BASE_URL, `/api/admin/usuarios/${usuario.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
                         if (!data.success) throw new Error(data.message || 'No se pudo eliminar el usuario.');
                         cargarDatosAdministrativos();
-                      }).catch(error => alert(error.message));
-                    }} className="border border-red-200 text-red-700 px-3 py-1.5 rounded text-xs">Eliminar</button>
+                        mostrarAviso('Usuario eliminado.');
+                      }).catch(error => mostrarAviso(error.message, 'error'));
+                    })} className="border border-red-200 text-red-700 px-3 py-1.5 rounded text-xs">Eliminar</button>
                   </div>
                 </div>)}
               </div>
@@ -1021,7 +1071,7 @@ export default function App() {
                   if (!data.success) throw new Error(data.message || 'No se pudo guardar la tarea.');
                   setFormTarea({ id: null, titulo: '', descripcion: '', asignado_a_id: currentUser.id, fecha_limite: '', estado: 'pendiente' });
                   cargarDatosAdministrativos();
-                }).catch(error => alert(error.message));
+                }).catch(error => mostrarAviso(error.message, 'error'));
               }} className="grid sm:grid-cols-2 gap-3 border-b pb-5">
                 <input placeholder="Título de tarea" required value={formTarea.titulo} onChange={e => setFormTarea({ ...formTarea, titulo: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input type="date" required value={formTarea.fecha_limite} onChange={e => setFormTarea({ ...formTarea, fecha_limite: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
@@ -1052,7 +1102,7 @@ export default function App() {
                   if (!data.success) throw new Error(data.message || 'No se pudo guardar el proyecto.');
                   setFormProyecto({ id: null, titulo: '', descripcion: '', estado: 'planificacion' });
                   cargarDatosAdministrativos();
-                }).catch(error => alert(error.message));
+                }).catch(error => mostrarAviso(error.message, 'error'));
               }} className="grid sm:grid-cols-2 gap-3 border-b pb-5">
                 <input placeholder="Nombre del proyecto" required value={formProyecto.titulo} onChange={e => setFormProyecto({ ...formProyecto, titulo: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <select value={formProyecto.estado} onChange={e => setFormProyecto({ ...formProyecto, estado: e.target.value })} className="px-3 py-2 border rounded-lg bg-white text-sm"><option value="planificacion">Planificación</option><option value="en_curso">En curso</option><option value="pausado">Pausado</option><option value="completado">Completado</option></select>
@@ -1063,59 +1113,77 @@ export default function App() {
             </div>
           )}
 
+          {/* GESTIÓN DE CATEGORÍAS */}
+          {activeTab === 'categorias' && currentUser.rol === 'gerente_it' && (
+            <section className="max-w-2xl space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Gestión de categorías</h2>
+                <p className="mt-1 text-sm text-slate-500">Administre las categorías disponibles al crear tickets.</p>
+              </div>
+              <form onSubmit={event => {
+                event.preventDefault();
+                const editing = Boolean(formCategoria.id);
+                apiFetch(API_BASE_URL, editing ? `/api/admin/categorias/${formCategoria.id}` : '/api/admin/categorias', {
+                  method: editing ? 'PUT' : 'POST', body: JSON.stringify({ nombre: formCategoria.nombre })
+                }).then(res => res.json()).then(data => {
+                  if (!data.success) throw new Error(data.message || 'No se pudo guardar la categoría.');
+                  setFormCategoria({ id: null, nombre: '' });
+                  return apiFetch(API_BASE_URL, '/api/tickets/categorias').then(res => res.json());
+                }).then(data => { if (data?.success) setCategorias(data.data); }).catch(error => mostrarAviso(error.message, 'error'));
+              }} className="flex flex-wrap gap-2 border-b border-slate-200 pb-5">
+                <input aria-label="Nombre de categoría" required maxLength="100" value={formCategoria.nombre} onChange={event => setFormCategoria({ ...formCategoria, nombre: event.target.value })} placeholder="Ej. Telefonía" className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                <button className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white">{formCategoria.id ? 'Guardar' : 'Agregar'}</button>
+                {formCategoria.id && <button type="button" onClick={() => setFormCategoria({ id: null, nombre: '' })} className="rounded-md border border-slate-300 px-3 py-2 text-sm">Cancelar</button>}
+              </form>
+              <ul className="divide-y divide-slate-100">
+                {categorias.map(categoria => <li key={categoria.id} className="flex items-center justify-between gap-3 py-3 text-sm">
+                  <span className="font-medium text-slate-800">{categoria.nombre}</span>
+                  <span className="flex gap-3"><button onClick={() => setFormCategoria({ id: categoria.id, nombre: categoria.nombre })} className="font-semibold text-blue-700">Editar</button><button onClick={() => confirmarAccion(`¿Eliminar la categoría ${categoria.nombre}?`, () => {
+                    apiFetch(API_BASE_URL, `/api/admin/categorias/${categoria.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
+                      if (!data.success) throw new Error(data.message || 'No se pudo eliminar la categoría.');
+                      setCategorias(actual => actual.filter(item => item.id !== categoria.id));
+                      mostrarAviso('Categoría eliminada.');
+                    }).catch(error => mostrarAviso(error.message, 'error'));
+                  })} className="font-semibold text-red-700">Eliminar</button></span>
+                </li>)}
+                {!categorias.length && <li className="py-8 text-center text-sm text-slate-500">No hay categorías registradas.</li>}
+              </ul>
+            </section>
+          )}
+
           {/* CONFIGURACIONES */}
           {activeTab === 'configuracion' && currentUser.rol === 'gerente_it' && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4 max-w-xl">
               <h2 className="text-xl font-bold text-slate-900">Configuraciones del Sistema SGTI</h2>
-              <section className="border-b border-slate-200 pb-5">
-                <h3 className="font-bold text-slate-900">Categorías de tickets</h3>
-                <p className="mb-3 mt-1 text-xs text-slate-500">Estas opciones estarán disponibles al crear solicitudes.</p>
-                <form onSubmit={event => {
-                  event.preventDefault();
-                  const editing = Boolean(formCategoria.id);
-                  apiFetch(API_BASE_URL, editing ? `/api/admin/categorias/${formCategoria.id}` : '/api/admin/categorias', {
-                    method: editing ? 'PUT' : 'POST', body: JSON.stringify({ nombre: formCategoria.nombre })
-                  }).then(res => res.json()).then(data => {
-                    if (!data.success) throw new Error(data.message || 'No se pudo guardar la categoría.');
-                    setFormCategoria({ id: null, nombre: '' });
-                    return apiFetch(API_BASE_URL, '/api/tickets/categorias').then(res => res.json());
-                  }).then(data => { if (data?.success) setCategorias(data.data); }).catch(error => alert(error.message));
-                }} className="flex flex-wrap gap-2">
-                  <input aria-label="Nombre de categoría" required maxLength="100" value={formCategoria.nombre} onChange={event => setFormCategoria({ ...formCategoria, nombre: event.target.value })} placeholder="Ej. Telefonía" className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-                  <button className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white">{formCategoria.id ? 'Guardar' : 'Agregar'}</button>
-                  {formCategoria.id && <button type="button" onClick={() => setFormCategoria({ id: null, nombre: '' })} className="rounded-md border border-slate-300 px-3 py-2 text-sm">Cancelar</button>}
-                </form>
-                <ul className="mt-3 divide-y divide-slate-100">
-                  {categorias.map(categoria => <li key={categoria.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                    <span>{categoria.nombre}</span>
-                    <span className="flex gap-3"><button onClick={() => setFormCategoria({ id: categoria.id, nombre: categoria.nombre })} className="font-semibold text-blue-700">Editar</button><button onClick={() => {
-                      if (!window.confirm(`¿Eliminar la categoría ${categoria.nombre}?`)) return;
-                      apiFetch(API_BASE_URL, `/api/admin/categorias/${categoria.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
-                        if (!data.success) throw new Error(data.message || 'No se pudo eliminar la categoría.');
-                        setCategorias(actual => actual.filter(item => item.id !== categoria.id));
-                      }).catch(error => alert(error.message));
-                    }} className="font-semibold text-red-700">Eliminar</button></span>
-                  </li>)}
-                </ul>
+              <section className="space-y-4 border-b border-slate-200 pb-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-bold text-slate-900">Recordatorios por correo</h3>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${estadoCorreo.smtp_configurado ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                    {estadoCorreo.smtp_configurado ? 'SMTP configurado' : 'SMTP pendiente'}
+                  </span>
+                </div>
+                <p className="text-xs leading-5 text-slate-500">Resumen diario de tickets activos y tareas próximas o vencidas. Se envía a las {String(estadoCorreo.hora_resumen).padStart(2, '0')}:00 según la hora del servidor.</p>
+                <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                  <input type="checkbox" checked={Boolean(configuracionSistema.alertas_email)} onChange={event => setConfiguracionSistema({ ...configuracionSistema, alertas_email: event.target.checked })} />
+                  Activar resumen diario
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Correos destinatarios
+                  <textarea rows="4" value={emailDestinatarios} onChange={event => setEmailDestinatarios(event.target.value)} placeholder={'gerencia@empresa.com\nsoporte@empresa.com'} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
+                </label>
+                <p className="text-xs text-slate-500">Escriba hasta 25 correos, uno por línea. Guarde los cambios antes de enviar la prueba.</p>
+                {!estadoCorreo.smtp_configurado && <p className="rounded-md bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">El administrador del servidor debe completar las variables SMTP en el archivo de entorno del backend. Las credenciales no se guardan en esta página.</p>}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button type="button" onClick={enviarCorreoPrueba} disabled={!estadoCorreo.smtp_configurado || estadoCorreo.destinatarios < 1 || enviandoPruebaCorreo} className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    {enviandoPruebaCorreo ? 'Enviando prueba...' : 'Enviar correo de prueba'}
+                  </button>
+                  <span className="text-xs text-slate-500" aria-live="polite">{estadoCorreo.destinatarios} destinatarios guardados</span>
+                </div>
               </section>
-              <div className="space-y-3 text-sm">
-                <label className="flex items-center gap-3">
-                  <input 
-                    type="checkbox" 
-                    checked={Boolean(configuracionSistema.modo_mantenimiento)}
-                    onChange={e => setConfiguracionSistema({...configuracionSistema, modo_mantenimiento: e.target.checked})}
-                  />
-                  <span>Activar Modo Mantenimiento Global</span>
-                </label>
-                <label className="flex items-center gap-3">
-                  <input 
-                    type="checkbox" 
-                    checked={Boolean(configuracionSistema.alertas_email)}
-                    onChange={e => setConfiguracionSistema({...configuracionSistema, alertas_email: e.target.checked})}
-                  />
-                  <span>Habilitar alertas por correo (requiere SMTP configurado)</span>
-                </label>
-              </div>
+              <label className="flex items-center gap-3 text-sm">
+                <input type="checkbox" checked={Boolean(configuracionSistema.modo_mantenimiento)} onChange={event => setConfiguracionSistema({ ...configuracionSistema, modo_mantenimiento: event.target.checked })} />
+                Activar Modo Mantenimiento Global
+              </label>
               <button onClick={enviarConfiguracion} className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">Guardar configuración</button>
             </div>
           )}
@@ -1135,7 +1203,7 @@ export default function App() {
                   if (!data.success) throw new Error(data.message || 'No se pudo guardar el activo.');
                   setFormActivo({ id: null, departamento_id: '', nombre: '', tipo: 'Impresora', cantidad: 1, ubicacion: '', notas: '' });
                   return apiFetch(API_BASE_URL, '/api/admin/infraestructura/inventario').then(res => res.json());
-                }).then(data => { if (data?.success) setInventario(data.data); }).catch(error => alert(error.message));
+                }).then(data => { if (data?.success) setInventario(data.data); }).catch(error => mostrarAviso(error.message, 'error'));
               }} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3">
                 <label className="text-xs font-semibold text-slate-600">Departamento
                   <select required value={formActivo.departamento_id} onChange={event => setFormActivo({ ...formActivo, departamento_id: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"><option value="">Seleccione departamento</option>{departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}</select>
@@ -1155,13 +1223,13 @@ export default function App() {
                   <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Departamento</th><th className="px-4 py-3">Equipo</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Cantidad</th><th className="px-4 py-3">Ubicación y notas</th><th className="px-4 py-3">Acciones</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">{inventario.map(activo => <tr key={activo.id}>
                     <td className="px-4 py-3 font-medium">{activo.departamento_nombre}</td><td className="px-4 py-3">{activo.nombre}</td><td className="px-4 py-3">{activo.tipo}</td><td className="px-4 py-3">{activo.cantidad}</td><td className="max-w-xs px-4 py-3 text-slate-600">{[activo.ubicacion, activo.notas].filter(Boolean).join(' · ') || '—'}</td>
-                    <td className="px-4 py-3"><div className="flex gap-3"><button onClick={() => setFormActivo({ id: activo.id, departamento_id: String(activo.departamento_id), nombre: activo.nombre, tipo: activo.tipo, cantidad: activo.cantidad, ubicacion: activo.ubicacion || '', notas: activo.notas || '' })} className="font-semibold text-blue-700">Editar</button><button onClick={() => {
-                      if (!window.confirm(`¿Eliminar ${activo.nombre} del inventario?`)) return;
+                    <td className="px-4 py-3"><div className="flex gap-3"><button onClick={() => setFormActivo({ id: activo.id, departamento_id: String(activo.departamento_id), nombre: activo.nombre, tipo: activo.tipo, cantidad: activo.cantidad, ubicacion: activo.ubicacion || '', notas: activo.notas || '' })} className="font-semibold text-blue-700">Editar</button><button onClick={() => confirmarAccion(`¿Eliminar ${activo.nombre} del inventario?`, () => {
                       apiFetch(API_BASE_URL, `/api/admin/infraestructura/inventario/${activo.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
                         if (!data.success) throw new Error(data.message || 'No se pudo eliminar el activo.');
                         setInventario(actual => actual.filter(item => item.id !== activo.id));
-                      }).catch(error => alert(error.message));
-                    }} className="font-semibold text-red-700">Eliminar</button></div></td>
+                        mostrarAviso('Activo eliminado del inventario.');
+                      }).catch(error => mostrarAviso(error.message, 'error'));
+                    })} className="font-semibold text-red-700">Eliminar</button></div></td>
                   </tr>)}
                     {!inventario.length && <tr><td colSpan="6" className="px-4 py-10 text-center text-slate-500">No hay activos registrados todavía.</td></tr>}
                   </tbody>
@@ -1231,8 +1299,8 @@ export default function App() {
                   if (!data.success) throw new Error(data.message || 'No se pudo guardar la encuesta.');
                   setFormEncuesta({ ticket_id: '', calificacion: 5, comentario: '' });
                   cargarDatosGlobales();
-                  alert('Gracias por compartir su opinión.');
-                }).catch(error => alert(error.message));
+                  mostrarAviso('Gracias por compartir su opinión.');
+                }).catch(error => mostrarAviso(error.message, 'error'));
               }} className="space-y-3 text-left">
                 <label className="block text-sm font-medium">Ticket resuelto
                   <select required value={formEncuesta.ticket_id} onChange={e => setFormEncuesta({ ...formEncuesta, ticket_id: e.target.value })} className="mt-1 w-full px-3 py-2 border rounded-lg bg-white">
@@ -1254,6 +1322,26 @@ export default function App() {
           {activeTab === 'apis' && currentUser.isAdmin && <ApiReference />}
 
         </main>
+        {dialogo && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 p-4" onClick={() => dialogo.tipo !== 'confirm' && setDialogo(null)}>
+          <section role={dialogo.tipo === 'confirm' ? 'alertdialog' : 'dialog'} aria-modal="true" aria-labelledby="app-dialog-title" className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${dialogo.tipo === 'error' ? 'bg-red-100 text-red-700' : dialogo.tipo === 'confirm' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'}`} aria-hidden="true">{dialogo.tipo === 'error' ? '!' : dialogo.tipo === 'confirm' ? '?' : '✓'}</span>
+              <div className="min-w-0 flex-1">
+                <h2 id="app-dialog-title" className="font-bold text-slate-900">{dialogo.tipo === 'error' ? 'No se pudo completar' : dialogo.tipo === 'confirm' ? 'Confirmar acción' : 'Acción completada'}</h2>
+                <p className="mt-1 break-words text-sm leading-5 text-slate-600">{dialogo.mensaje}</p>
+              </div>
+              <button autoFocus aria-label="Cerrar ventana" onClick={() => setDialogo(null)} className="rounded px-2 py-1 text-lg leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700">×</button>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              {dialogo.tipo === 'confirm' && <button onClick={() => setDialogo(null)} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancelar</button>}
+              <button onClick={() => {
+                const accion = dialogo.accion;
+                setDialogo(null);
+                if (accion) accion();
+              }} className={`rounded-md px-4 py-2 text-sm font-semibold text-white ${dialogo.tipo === 'confirm' ? 'bg-red-700 hover:bg-red-800' : 'bg-slate-800 hover:bg-slate-900'}`}>{dialogo.tipo === 'confirm' ? 'Eliminar' : 'Entendido'}</button>
+            </div>
+          </section>
+        </div>}
         {ticketSeleccionado && <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/60 p-3 sm:p-8" onClick={() => { setTicketSeleccionado(null); setTicketEnEdicion(null); }}>
           <section role="dialog" aria-modal="true" aria-labelledby="ticket-detail-title" className="mx-auto my-4 max-h-[92vh] max-w-3xl overflow-y-auto rounded bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
             <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b bg-white px-5 py-4">
