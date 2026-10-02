@@ -555,12 +555,12 @@ export default function App() {
     configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento', entregas: 'Entrega de artículos'
   };
   const estilosGrupoNav = {
-    principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', punto: 'bg-slate-500', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
-    tickets: { fondo: 'bg-sky-50', titulo: 'text-sky-800', punto: 'bg-sky-600', activo: 'border-sky-600 bg-sky-50 text-sky-900' },
-    administracion: { fondo: 'bg-emerald-50', titulo: 'text-emerald-800', punto: 'bg-emerald-600', activo: 'border-emerald-600 bg-emerald-50 text-emerald-900' },
-    planificacion: { fondo: 'bg-amber-50', titulo: 'text-amber-800', punto: 'bg-amber-600', activo: 'border-amber-600 bg-amber-50 text-amber-900' },
-    infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', punto: 'bg-teal-600', activo: 'border-teal-600 bg-teal-50 text-teal-900' },
-    referencia: { fondo: 'bg-slate-50', titulo: 'text-slate-700', punto: 'bg-slate-500', activo: 'border-slate-500 bg-slate-100 text-slate-900' }
+    principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
+    tickets: { fondo: 'bg-sky-50', titulo: 'text-sky-800', activo: 'border-sky-600 bg-sky-50 text-sky-900' },
+    administracion: { fondo: 'bg-emerald-50', titulo: 'text-emerald-800', activo: 'border-emerald-600 bg-emerald-50 text-emerald-900' },
+    planificacion: { fondo: 'bg-amber-50', titulo: 'text-amber-800', activo: 'border-amber-600 bg-amber-50 text-amber-900' },
+    infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', activo: 'border-teal-600 bg-teal-50 text-teal-900' },
+    referencia: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' }
   };
   const claseNav = (tab, grupo) => `w-full flex items-center gap-3 rounded-md border-l-2 px-3 py-2.5 font-medium transition ${activeTab === tab ? estilosGrupoNav[grupo].activo : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
   const tituloNav = (texto, grupo) => <button
@@ -569,9 +569,8 @@ export default function App() {
     aria-expanded={seccionesAbiertas[grupo]}
     aria-controls={`nav-section-${grupo}`}
     onClick={() => setSeccionesAbiertas(actual => ({ ...actual, [grupo]: !actual[grupo] }))}
-    className={`mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}
+    className={`mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-md px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}
   >
-    <span className={`h-1.5 w-1.5 rounded-full ${estilosGrupoNav[grupo].punto}`} aria-hidden="true" />
     <span>{texto}</span>
     <span className="ml-auto text-sm" aria-hidden="true">{seccionesAbiertas[grupo] ? '-' : '+'}</span>
   </button>;
