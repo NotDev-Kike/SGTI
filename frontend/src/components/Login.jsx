@@ -32,8 +32,8 @@ export default function Login({ onLogin, apiBaseUrl }) {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 font-sans">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 border border-slate-800">
         <div className="text-center mb-6">
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">SGTI</h1>
-          <p className="text-sm text-slate-500 mt-1">Plataforma Inteligente de Servicios de IT</p>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">SGTI-Baprosa</h1>
+          <p className="text-sm text-slate-500 mt-1">Plataforma Servicios de IT</p>
         </div>
 
         {error && (
