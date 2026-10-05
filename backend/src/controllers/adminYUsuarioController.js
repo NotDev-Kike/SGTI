@@ -216,6 +216,16 @@ const crearArchivoUsuario = async (client, usuario, managerId) => {
       )
     ORDER BY i.created_at, i.id
   `, [usuario.id, ticketIds]);
+  const solicitudesAsistenciaRemota = await filasComoJson(client, `
+    SELECT to_jsonb(s) || jsonb_build_object(
+      'solicitante_nombre', CASE WHEN s.solicitante_id = $1 THEN $2::text ELSE s.solicitante_nombre END,
+      'solicitante_email', CASE WHEN s.solicitante_id = $1 THEN $3::text ELSE s.solicitante_email END,
+      'atendido_por_nombre', CASE WHEN s.atendido_por_id = $1 THEN $2::text ELSE s.atendido_por_nombre END
+    ) AS registro
+    FROM solicitudes_asistencia_remota s
+    WHERE s.solicitante_id = $1 OR s.atendido_por_id = $1
+    ORDER BY s.creada_en, s.id
+  `, [usuario.id, usuario.nombre, usuario.email]);
   const activity = {
     usuario: profile,
     tickets_solicitados: ticketsSolicitados,
@@ -229,7 +239,8 @@ const crearArchivoUsuario = async (client, usuario, managerId) => {
     conversaciones_directas: conversacionesDirectas,
     entregas,
     inventario_actualizado: inventarioActualizado,
-    imagenes_evidencia: imagenesEvidencia
+    imagenes_evidencia: imagenesEvidencia,
+    solicitudes_asistencia_remota: solicitudesAsistenciaRemota
   };
   const managerResult = await client.query('SELECT nombre FROM usuarios WHERE id = $1', [managerId]);
   return { profile, activity, managerName: managerResult.rows[0]?.nombre || null };
@@ -247,6 +258,7 @@ exports.listarUsuariosArchivados = async (_req, res) => {
                'tareas', jsonb_array_length(COALESCE(actividad->'tareas', '[]'::jsonb)),
                'proyectos', jsonb_array_length(COALESCE(actividad->'proyectos', '[]'::jsonb)),
                'conversaciones_directas', jsonb_array_length(COALESCE(actividad->'conversaciones_directas', '[]'::jsonb)),
+               'solicitudes_asistencia_remota', jsonb_array_length(COALESCE(actividad->'solicitudes_asistencia_remota', '[]'::jsonb)),
                'imagenes_evidencia', jsonb_array_length(COALESCE(actividad->'imagenes_evidencia', '[]'::jsonb))
              ) AS resumen
       FROM usuarios_archivados
@@ -354,6 +366,16 @@ exports.eliminarUsuario = async (req, res) => {
           WHERE c.solicitante_id = $2 OR c.admin_id = $2
         )
     `, [archiveResult.rows[0].id, userId, activity.tickets_solicitados.map(ticket => ticket.id)]);
+    await client.query(`
+        UPDATE solicitudes_asistencia_remota
+        SET estado = CASE WHEN solicitante_id = $1 THEN 'cancelada' ELSE 'pendiente' END,
+            atendido_por_id = CASE WHEN solicitante_id = $1 THEN atendido_por_id ELSE NULL END,
+            atendido_por_nombre = CASE WHEN solicitante_id = $1 THEN atendido_por_nombre ELSE NULL END,
+            iniciada_en = CASE WHEN solicitante_id = $1 THEN iniciada_en ELSE NULL END,
+            actualizada_en = CURRENT_TIMESTAMP
+        WHERE (solicitante_id = $1 OR atendido_por_id = $1)
+          AND estado IN ('pendiente', 'atendiendo')
+    `, [userId]);
     await client.query('DELETE FROM tickets WHERE usuario_creador_id = $1', [userId]);
     const deletion = await client.query('DELETE FROM usuarios WHERE id = $1', [userId]);
     if (deletion.rowCount !== 1) throw new Error('La cuenta no se pudo eliminar después de archivar su información.');
@@ -363,12 +385,12 @@ exports.eliminarUsuario = async (req, res) => {
   } catch (error) {
     if (transactionStarted && client) await client.query('ROLLBACK');
     if (error.code === '42P01') {
-      return res.status(503).json({ success: false, message: 'Aplique las migraciones 005_archived_users.sql y 006_evidence_images.sql antes de eliminar usuarios.' });
+      return res.status(503).json({ success: false, message: 'Aplique las migraciones 005_archived_users.sql, 006_evidence_images.sql y 007_remote_assistance.sql antes de eliminar usuarios.' });
     }
     if (error.code === '23503') {
       return res.status(409).json({
         success: false,
-        message: 'No se completó el archivo ni la eliminación. Revise que la migración 005_archived_users.sql esté aplicada y vuelva a intentarlo.'
+        message: 'No se completó el archivo ni la eliminación. Revise que las migraciones 005_archived_users.sql y 007_remote_assistance.sql estén aplicadas y vuelva a intentarlo.'
       });
     }
     if (error.code === '40001') {

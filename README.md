@@ -58,12 +58,14 @@ SGTI/
 | `backend/scripts/migrate-helpdesk.js` | Aplica en PostgreSQL las migraciones del catálogo, inventario y registros de entrega de infraestructura. |
 | `backend/scripts/migrate-user-archives.js` | Aplica el archivo histórico de usuarios y permite eliminar cuentas conservando su actividad asociada. |
 | `backend/scripts/migrate-evidence-images.js` | Crea almacenamiento privado en PostgreSQL para imágenes de evidencia en tickets y mensajes. |
+| `backend/scripts/migrate-remote-assistance.js` | Crea la cola de solicitudes de asistencia remota con AnyDesk. |
 | `backend/migrations/001_direct_chat.sql` | DDL de conversaciones directas y mensajes directos, incluidas sus restricciones e índice. |
 | `backend/migrations/002_ticket_followup.sql` | Agrega a `tickets` los campos usados para fecha estimada, causa externa y actualización pública. |
 | `backend/migrations/003_helpdesk_catalog_inventory.sql` | Crea el catálogo de categorías, sus opciones iniciales y el inventario por departamento. |
 | `backend/migrations/004_infrastructure_deliveries.sql` | Crea los registros persistentes de entrega y sus artículos, conservando departamento y usuario como datos históricos. |
 | `backend/migrations/005_archived_users.sql` | Crea el archivo de usuarios eliminados y permite desvincular actividad histórica antes de eliminar la cuenta. |
 | `backend/migrations/006_evidence_images.sql` | Crea almacenamiento de imágenes de evidencia y preserva copias asociadas a cuentas archivadas. |
+| `backend/migrations/007_remote_assistance.sql` | Crea solicitudes remotas, asignación a un administrador y estados de atención. |
 | `backend/prisma/schema.prisma` | Describe dos modelos Prisma, `Ticket` e `HistorialTicketLog`. No describe toda la base que consulta la aplicación. |
 | `backend/prisma.config.ts` | Configuración de Prisma para sincronizar instrucciones/skills de herramientas de desarrollo. No define el esquema PostgreSQL operativo. |
 | `backend/package.json` | Dependencias y comandos del backend. El script de ejecución apunta a `src/index.js`. |
@@ -311,7 +313,9 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_ticket_followup.sql
 
 Aplicar `npm run migrate:user-archives` antes de habilitar la eliminación archivada de usuarios. La operación conserva el perfil, tickets solicitados/asignados, historial, mensajes, referencias a adjuntos, encuestas, tareas, proyectos, conversaciones directas, entregas e inventario asociado; elimina los tickets creados por esa cuenta de la bandeja operativa y conserva su copia completa en el archivo. Las asignaciones e identificadores de autor de otros registros se desvinculan cuando corresponda. Las referencias a archivos se archivan, pero el contenido binario se queda en su almacenamiento actual. No se archivan contraseñas.
 
-Después de aplicar `migrate:user-archives`, aplicar `npm run migrate:evidence-images` para habilitar imágenes. Los usuarios pueden adjuntar opcionalmente hasta cinco imágenes JPG, PNG, GIF o WebP de hasta 10 MB cada una al crear tickets, enviar mensajes en tickets o conversar directamente con IT. La API valida el formato real y sirve cada imagen únicamente a participantes autorizados. Los bytes se almacenan en PostgreSQL; al eliminar una cuenta, las imágenes relacionadas se copian al archivo histórico antes de borrar los tickets propios. Asegúrese de que la base disponga de espacio de almacenamiento y copias de respaldo adecuadas.
+Después de aplicar `migrate:user-archives`, aplicar `npm run migrate:evidence-images` para habilitar imágenes. Los usuarios pueden adjuntar opcionalmente hasta cinco imágenes JPG, PNG, GIF o WebP de hasta 10 MB cada una al crear tickets, enviar mensajes en tickets o conversar directamente con IT. La API valida el formato real y sirve cada imagen únicamente a participantes autorizados; en la galería se puede ampliar y descargar la evidencia.
+
+Para habilitar la asistencia remota, después de las migraciones anteriores ejecutar `npm run migrate:remote-assistance` desde `backend/`. El usuario final registra su ID o alias de AnyDesk y aparece en la cola compartida de Soporte. Cada administrador puede tomar una solicitud a la vez; al abrir AnyDesk, el solicitante aún debe aceptar la conexión en su dispositivo. Las solicitudes se incluyen en el archivo histórico de usuarios. Las imágenes y los IDs de AnyDesk se guardan en PostgreSQL; asegúrese de contar con espacio y respaldos adecuados.
 
 Desde `frontend/`:
 

@@ -40,7 +40,13 @@ const endpoints = [
   { method: 'POST', path: '/api/admin/configuraciones/correo/prueba', access: 'Gerente de IT', purpose: 'Validar SMTP y enviar un correo de prueba', usedBy: 'Configuración' },
   { method: 'GET', path: '/api/chat/directo/admins', access: 'Sesión', purpose: 'Consultar personal de soporte', usedBy: 'Mensajes con IT' },
   { method: 'GET', path: '/api/chat/directo', access: 'Sesión', purpose: 'Consultar mensajes directos', usedBy: 'Mensajes con IT' },
-  { method: 'POST', path: '/api/chat/directo', access: 'Sesión; multipart/form-data', purpose: 'Enviar un mensaje directo y hasta cinco imágenes de evidencia', usedBy: 'Mensajes con IT' }
+  { method: 'POST', path: '/api/chat/directo', access: 'Sesión; multipart/form-data', purpose: 'Enviar un mensaje directo y hasta cinco imágenes de evidencia', usedBy: 'Mensajes con IT' },
+  { method: 'GET', path: '/api/asistencia-remota/mias', access: 'Sesión', purpose: 'Consultar las propias solicitudes de AnyDesk', usedBy: 'Asistencia remota' },
+  { method: 'POST', path: '/api/asistencia-remota', access: 'Usuario final', purpose: 'Solicitar asistencia con un ID de AnyDesk y una descripción opcional', usedBy: 'Asistencia remota' },
+  { method: 'GET', path: '/api/asistencia-remota', access: 'Administrador de IT', purpose: 'Consultar la cola activa de solicitudes remotas', usedBy: 'Asistencia remota' },
+  { method: 'PATCH', path: '/api/asistencia-remota/:id/tomar', access: 'Administrador de IT', purpose: 'Tomar una solicitud para atenderla', usedBy: 'Asistencia remota' },
+  { method: 'PATCH', path: '/api/asistencia-remota/:id/finalizar', access: 'Responsable asignado o Gerencia de IT', purpose: 'Finalizar la atención remota', usedBy: 'Asistencia remota' },
+  { method: 'PATCH', path: '/api/asistencia-remota/:id/cancelar', access: 'Solicitante; solo si sigue pendiente', purpose: 'Cancelar una solicitud pendiente', usedBy: 'Asistencia remota' }
 ];
 
 export default function ApiReference() {

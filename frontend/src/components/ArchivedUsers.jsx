@@ -17,6 +17,7 @@ const sections = [
   ['conversaciones_directas', 'Conversaciones directas'],
   ['entregas', 'Entregas'],
   ['inventario_actualizado', 'Inventario actualizado'],
+  ['solicitudes_asistencia_remota', 'Solicitudes de asistencia remota'],
   ['imagenes_evidencia', 'Imágenes de evidencia']
 ];
 

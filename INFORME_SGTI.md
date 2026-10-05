@@ -64,6 +64,7 @@ SGTI/
 | `backend/migrations/004_infrastructure_deliveries.sql` | Crea los registros persistentes de entrega y sus artículos, conservando departamento y usuario como datos históricos. |
 | `backend/migrations/005_archived_users.sql` | Crea el archivo de usuarios eliminados y permite desvincular actividad histórica antes de eliminar la cuenta. |
 | `backend/migrations/006_evidence_images.sql` | Crea almacenamiento de imágenes de evidencia y preserva copias asociadas a cuentas archivadas. |
+| `backend/migrations/007_remote_assistance.sql` | Crea la cola de solicitudes remotas de usuarios finales y su asignación a personal de IT. |
 | `backend/prisma/schema.prisma` | Describe dos modelos Prisma, `Ticket` e `HistorialTicketLog`. No describe toda la base que consulta la aplicación. |
 | `backend/prisma.config.ts` | Configuración de Prisma para sincronizar instrucciones/skills de herramientas de desarrollo. No define el esquema PostgreSQL operativo. |
 | `backend/package.json` | Dependencias y comandos del backend. El script de ejecución apunta a `src/index.js`. |
@@ -251,9 +252,10 @@ Estos dos modelos no representan el contrato SQL actual de los controladores. Po
 - `backend/migrations/002_ticket_followup.sql`: agrega a `tickets` `fecha_estimada_resolucion TIMESTAMP`, `causa_externa BOOLEAN NOT NULL DEFAULT FALSE` y `actualizacion_publica TEXT`. Usa `ADD COLUMN IF NOT EXISTS`, por lo que se puede volver a ejecutar.
 - `backend/migrations/003_helpdesk_catalog_inventory.sql`: crea `categorias_ticket` e `inventario_departamentos`, índices asociados y cuatro categorías iniciales. Puede ejecutarse repetidamente.
 - `backend/migrations/005_archived_users.sql`: crea `usuarios_archivados` y convierte en opcionales las atribuciones a usuarios en mensajes, historial, tareas, proyectos, adjuntos y tickets asignados, para conservar esos registros al eliminar una cuenta.
+- `backend/migrations/007_remote_assistance.sql`: crea la cola de asistencia remota por AnyDesk, con estados, asignación de responsable y límite de una solicitud activa por usuario.
 
 Las migraciones se encuentran en `backend/migrations/`, fuera de la carpeta de migraciones de Prisma. Para crear el catálogo y el inventario en la base configurada, ejecutar `npm run migrate:helpdesk`; para habilitar el archivo histórico, ejecutar `npm run migrate:user-archives`, ambos desde `backend/` y con `DATABASE_URL` configurada.
-Después de aplicar el archivo de usuarios, ejecutar `npm run migrate:evidence-images` para crear las tablas de imágenes adjuntas y copias de imágenes para el archivo histórico.
+Después de aplicar el archivo de usuarios, ejecutar `npm run migrate:evidence-images` para crear las tablas de imágenes adjuntas y copias de imágenes para el archivo histórico. Luego, ejecutar `npm run migrate:remote-assistance` para habilitar la cola de soporte remoto mediante AnyDesk.
 
 ### 6.5 Relaciones funcionales
 

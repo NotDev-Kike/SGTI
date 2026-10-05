@@ -8,6 +8,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use('/api/chat', require('./routes/chatRoutes'));
+app.use('/api/asistencia-remota', require('./routes/remoteAssistanceRoutes'));
 
 app.use('/api/auth', require('./routes/authRoutes'));
 

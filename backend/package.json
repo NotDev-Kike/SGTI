@@ -9,6 +9,7 @@
     "bootstrap:admins": "node scripts/bootstrap-admins.js",
     "migrate:user-archives": "node scripts/migrate-user-archives.js",
     "migrate:evidence-images": "node scripts/migrate-evidence-images.js",
+    "migrate:remote-assistance": "node scripts/migrate-remote-assistance.js",
     "migrate:helpdesk": "node scripts/migrate-helpdesk.js",
     "postinstall": "prisma skills sync || exit 0"
   },
