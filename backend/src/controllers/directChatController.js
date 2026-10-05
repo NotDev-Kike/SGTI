@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { guardarImagenesEvidencia } = require('../services/evidenceImageService');
 
 const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
 
@@ -55,7 +56,11 @@ exports.listarConversaciones = async (req, res) => {
     const conversationId = conversationResult.rows[0].id;
     await db.query('UPDATE mensajes_directos SET leido = TRUE WHERE conversacion_id = $1 AND remitente_id <> $2', [conversationId, req.user.id]);
     const { rows } = await db.query(`
-      SELECT m.*, u.nombre AS remitente_nombre
+      SELECT m.*, u.nombre AS remitente_nombre,
+             COALESCE((
+               SELECT json_agg(json_build_object('id', i.id, 'nombre_archivo', i.nombre_archivo, 'mime_type', i.mime_type, 'tamano_bytes', i.tamano_bytes) ORDER BY i.id)
+               FROM imagenes_evidencia i WHERE i.mensaje_directo_id = m.id
+             ), '[]'::json) AS imagenes
       FROM mensajes_directos m
       JOIN usuarios u ON u.id = m.remitente_id
       WHERE m.conversacion_id = $1
@@ -71,8 +76,8 @@ exports.enviarMensaje = async (req, res) => {
   const isAdmin = adminRoles.includes(req.user.rol);
   const recipientId = Number(isAdmin ? req.body.usuario_id : req.body.admin_id);
   const message = typeof req.body.mensaje === 'string' ? req.body.mensaje.trim() : '';
-  if (!Number.isInteger(recipientId) || recipientId <= 0 || !message) {
-    return res.status(400).json({ success: false, message: 'Destinatario y mensaje son obligatorios.' });
+  if (!Number.isInteger(recipientId) || recipientId <= 0 || (!message && !(req.files || []).length)) {
+    return res.status(400).json({ success: false, message: 'Seleccione un destinatario y escriba un mensaje o adjunte una imagen.' });
   }
 
   const requesterId = isAdmin ? recipientId : req.user.id;
@@ -94,7 +99,12 @@ exports.enviarMensaje = async (req, res) => {
     const { rows } = await client.query(`
       INSERT INTO mensajes_directos (conversacion_id, remitente_id, mensaje)
       VALUES ($1, $2, $3) RETURNING *;
-    `, [conversation.rows[0].id, req.user.id, message]);
+    `, [conversation.rows[0].id, req.user.id, message || 'Adjuntó una imagen como evidencia.']);
+    await guardarImagenesEvidencia(client, {
+      mensajeDirectoId: rows[0].id,
+      uploadedById: req.user.id,
+      files: req.files || []
+    });
     await client.query('COMMIT');
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {

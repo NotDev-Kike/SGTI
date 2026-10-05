@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { guardarImagenesEvidencia } = require('../services/evidenceImageService');
 
 exports.listarCategorias = async (_req, res) => {
   try {
@@ -73,7 +74,9 @@ exports.crearTicket = async (req, res) => {
       }
     }
 
-    // Insertar el ticket
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
     const insertTicketQuery = `
       INSERT INTO tickets (titulo, descripcion, usuario_creador_id, departamento_destino_id, categoria, tipo_solicitud, prioridad, estado, fecha_limite)
       VALUES ($1, $2, $3, $4, $5, $6, $7, 'nuevo', $8)
@@ -81,7 +84,7 @@ exports.crearTicket = async (req, res) => {
     `;
     const fechaLimite = fecha_limite || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
     const ticketValues = [titulo.trim(), descripcion.trim(), usuario_creador_id, departamento_destino_id, categoria || 'hardware', tipo_solicitud || 'incidencia', prioridad || 'media', fechaLimite];
-    const newTicketResult = await db.query(insertTicketQuery, ticketValues);
+    const newTicketResult = await client.query(insertTicketQuery, ticketValues);
     const ticketCreado = newTicketResult.rows[0];
 
     // Registrar en la tabla de historial (auditoría)
@@ -89,13 +92,25 @@ exports.crearTicket = async (req, res) => {
       INSERT INTO ticket_historial (ticket_id, usuario_id, accion)
       VALUES ($1, $2, $3);
     `;
-    await db.query(insertHistorialQuery, [ticketCreado.id, usuario_creador_id, 'Creación del ticket']);
+    await client.query(insertHistorialQuery, [ticketCreado.id, usuario_creador_id, 'Creación del ticket']);
+    await guardarImagenesEvidencia(client, {
+      ticketId: ticketCreado.id,
+      uploadedById: usuario_creador_id,
+      files: req.files || []
+    });
+    await client.query('COMMIT');
 
     res.status(201).json({ 
       success: true, 
       message: 'Ticket creado exitosamente', 
       data: ticketCreado 
     });
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: 'Error al crear el ticket', error: error.message });
@@ -250,14 +265,33 @@ exports.enviarMensaje = async (req, res) => {
     if (!esSolicitante && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !esResponsable)) {
       return res.status(403).json({ success: false, message: 'No tiene acceso a esta conversación.' });
     }
-    if (!mensaje?.trim()) return res.status(400).json({ success: false, message: 'El mensaje no puede estar vacío.' });
-    const query = `
-      INSERT INTO mensajes_ticket (ticket_id, remitente_id, mensaje)
-      VALUES ($1, $2, $3)
-      RETURNING *;
-    `;
-    const { rows } = await db.query(query, [id, req.user.id, mensaje.trim()]);
-    res.status(201).json({ success: true, data: rows[0] });
+    const messageText = typeof mensaje === 'string' ? mensaje.trim() : '';
+    if (!messageText && !(req.files || []).length) return res.status(400).json({ success: false, message: 'Escriba un mensaje o adjunte una imagen.' });
+    const client = await db.connect();
+    let transactionStarted = false;
+    try {
+      await client.query('BEGIN');
+      transactionStarted = true;
+      const { rows } = await client.query(`
+        INSERT INTO mensajes_ticket (ticket_id, remitente_id, mensaje)
+        VALUES ($1, $2, $3)
+        RETURNING *;
+      `, [id, req.user.id, messageText || 'Adjuntó una imagen como evidencia.']);
+      await guardarImagenesEvidencia(client, {
+        ticketId: id,
+        mensajeTicketId: rows[0].id,
+        uploadedById: req.user.id,
+        files: req.files || []
+      });
+      await client.query('COMMIT');
+      transactionStarted = false;
+      res.status(201).json({ success: true, data: rows[0] });
+    } catch (error) {
+      if (transactionStarted) await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: 'Error al enviar mensaje', error: error.message });

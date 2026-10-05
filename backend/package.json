@@ -7,6 +7,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "bootstrap:admins": "node scripts/bootstrap-admins.js",
+    "migrate:user-archives": "node scripts/migrate-user-archives.js",
+    "migrate:evidence-images": "node scripts/migrate-evidence-images.js",
     "migrate:helpdesk": "node scripts/migrate-helpdesk.js",
     "postinstall": "prisma skills sync || exit 0"
   },
@@ -14,6 +16,7 @@
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.22.3",
+    "multer": "^2.4.0",
     "nodemailer": "^10.0.13",
     "pg": "^8.11.3"
   },

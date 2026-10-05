@@ -70,15 +70,325 @@ exports.crearModificarUsuario = async (req, res) => {
   }
 };
 
+const filasComoJson = async (client, query, params) => {
+  const { rows } = await client.query(query, params);
+  return rows.map(row => row.registro);
+};
+
+const crearArchivoUsuario = async (client, usuario, managerId) => {
+  const profile = {
+    id: usuario.id,
+    nombre: usuario.nombre,
+    email: usuario.email,
+    rol: usuario.rol,
+    departamento_id: usuario.departamento_id,
+    departamento_nombre: usuario.departamento_nombre,
+    activo: usuario.activo,
+    created_at: usuario.created_at
+  };
+  const ticketsSolicitados = await filasComoJson(client, `
+    SELECT to_jsonb(t) || jsonb_build_object(
+      'creador_nombre', creator.nombre,
+      'departamento_destino_nombre', d.nombre
+    ) AS registro
+    FROM tickets t
+    LEFT JOIN usuarios creator ON creator.id = t.usuario_creador_id
+    LEFT JOIN departamentos d ON d.id = t.departamento_destino_id
+    WHERE t.usuario_creador_id = $1
+    ORDER BY t.created_at, t.id
+  `, [usuario.id]);
+  const ticketsAsignados = await filasComoJson(client, `
+    SELECT to_jsonb(t) || jsonb_build_object(
+      'creador_nombre', creator.nombre,
+      'departamento_destino_nombre', d.nombre,
+      'asignado_nombre', $1::text
+    ) AS registro
+    FROM tickets t
+    LEFT JOIN usuarios creator ON creator.id = t.usuario_creador_id
+    LEFT JOIN departamentos d ON d.id = t.departamento_destino_id
+    WHERE t.asignado_a_id = $2 AND t.usuario_creador_id <> $2
+    ORDER BY t.created_at, t.id
+  `, [usuario.nombre, usuario.id]);
+  const ticketIds = ticketsSolicitados.map(ticket => ticket.id);
+  const historialTickets = await filasComoJson(client, `
+    SELECT to_jsonb(h) || jsonb_build_object('actor_nombre', COALESCE(u.nombre, $1::text)) AS registro
+    FROM ticket_historial h
+    LEFT JOIN usuarios u ON u.id = h.usuario_id
+    WHERE h.usuario_id = $2 OR h.ticket_id = ANY($3::int[])
+    ORDER BY h.created_at, h.id
+  `, [usuario.nombre, usuario.id, ticketIds]);
+  const mensajesTickets = await filasComoJson(client, `
+    SELECT to_jsonb(m) || jsonb_build_object('remitente_nombre', COALESCE(u.nombre, $1::text)) AS registro
+    FROM mensajes_ticket m
+    LEFT JOIN usuarios u ON u.id = m.remitente_id
+    WHERE m.remitente_id = $2 OR m.ticket_id = ANY($3::int[])
+    ORDER BY m.created_at, m.id
+  `, [usuario.nombre, usuario.id, ticketIds]);
+  const adjuntos = await filasComoJson(client, `
+    SELECT to_jsonb(a) || jsonb_build_object('subido_por_nombre', COALESCE(u.nombre, $1::text)) AS registro
+    FROM adjuntos a
+    LEFT JOIN usuarios u ON u.id = a.subido_por_id
+    WHERE a.subido_por_id = $2 OR a.ticket_id = ANY($3::int[])
+    ORDER BY a.created_at, a.id
+  `, [usuario.nombre, usuario.id, ticketIds]);
+  const encuestas = await filasComoJson(client, `
+    SELECT to_jsonb(e) || jsonb_build_object('ticket_titulo', t.titulo) AS registro
+    FROM encuestas_satisfaccion e
+    JOIN tickets t ON t.id = e.ticket_id
+    WHERE e.ticket_id = ANY($1::int[])
+    ORDER BY e.created_at, e.id
+  `, [ticketIds]);
+  const tareas = await filasComoJson(client, `
+    SELECT to_jsonb(t) || jsonb_build_object(
+      'asignado_nombre', COALESCE(u.nombre, $1::text),
+      'ticket_titulo', tk.titulo
+    ) AS registro
+    FROM tareas_it t
+    LEFT JOIN usuarios u ON u.id = t.asignado_a_id
+    LEFT JOIN tickets tk ON tk.id = t.ticket_id
+    WHERE t.asignado_a_id = $2 OR t.ticket_id = ANY($3::int[])
+    ORDER BY t.fecha_limite, t.id
+  `, [usuario.nombre, usuario.id, ticketIds]);
+  const proyectos = await filasComoJson(client, `
+    SELECT to_jsonb(p) AS registro FROM proyectos_ti p
+    WHERE p.creado_por_id = $1
+    ORDER BY p.created_at, p.id
+  `, [usuario.id]);
+  const conversacionesDirectas = await filasComoJson(client, `
+    SELECT jsonb_build_object(
+      'conversacion', to_jsonb(c),
+      'solicitante_nombre', solicitante.nombre,
+      'administrador_nombre', admin.nombre,
+      'mensajes', COALESCE((
+        SELECT jsonb_agg(
+          to_jsonb(m) || jsonb_build_object('remitente_nombre', COALESCE(u.nombre, $1::text))
+          ORDER BY m.created_at, m.id
+        )
+        FROM mensajes_directos m
+        LEFT JOIN usuarios u ON u.id = m.remitente_id
+        WHERE m.conversacion_id = c.id
+      ), '[]'::jsonb)
+    ) AS registro
+    FROM conversaciones_directas c
+    LEFT JOIN usuarios solicitante ON solicitante.id = c.solicitante_id
+    LEFT JOIN usuarios admin ON admin.id = c.admin_id
+    WHERE c.solicitante_id = $2 OR c.admin_id = $2
+    ORDER BY c.created_at, c.id
+  `, [usuario.nombre, usuario.id]);
+  const entregas = await filasComoJson(client, `
+    SELECT to_jsonb(e) || jsonb_build_object(
+      'articulos', COALESCE((
+        SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id)
+        FROM entregas_infraestructura_articulos a
+        WHERE a.entrega_id = e.id
+      ), '[]'::jsonb)
+    ) AS registro
+    FROM entregas_infraestructura e
+    WHERE e.entregado_por_id = $1
+    ORDER BY e.fecha_entrega, e.id
+  `, [usuario.id]);
+  const inventarioActualizado = await filasComoJson(client, `
+    SELECT to_jsonb(i) || jsonb_build_object('actualizado_por_nombre', $1::text) AS registro
+    FROM inventario_departamentos i
+    WHERE i.actualizado_por_id = $2
+    ORDER BY i.updated_at, i.id
+  `, [usuario.nombre, usuario.id]);
+
+  const imagenesEvidencia = await filasComoJson(client, `
+    SELECT jsonb_build_object(
+      'id', i.id,
+      'ticket_id', i.ticket_id,
+      'mensaje_ticket_id', i.mensaje_ticket_id,
+      'mensaje_directo_id', i.mensaje_directo_id,
+      'nombre_archivo', i.nombre_archivo,
+      'mime_type', i.mime_type,
+      'tamano_bytes', i.tamano_bytes,
+      'created_at', i.created_at
+    ) AS registro
+    FROM imagenes_evidencia i
+    WHERE i.subido_por_id = $1
+      OR i.ticket_id = ANY($2::int[])
+      OR i.mensaje_directo_id IN (
+        SELECT m.id
+        FROM mensajes_directos m
+        JOIN conversaciones_directas c ON c.id = m.conversacion_id
+        WHERE c.solicitante_id = $1 OR c.admin_id = $1
+      )
+    ORDER BY i.created_at, i.id
+  `, [usuario.id, ticketIds]);
+  const activity = {
+    usuario: profile,
+    tickets_solicitados: ticketsSolicitados,
+    tickets_asignados: ticketsAsignados,
+    historial_tickets: historialTickets,
+    mensajes_tickets: mensajesTickets,
+    adjuntos,
+    encuestas,
+    tareas,
+    proyectos,
+    conversaciones_directas: conversacionesDirectas,
+    entregas,
+    inventario_actualizado: inventarioActualizado,
+    imagenes_evidencia: imagenesEvidencia
+  };
+  const managerResult = await client.query('SELECT nombre FROM usuarios WHERE id = $1', [managerId]);
+  return { profile, activity, managerName: managerResult.rows[0]?.nombre || null };
+};
+
+exports.listarUsuariosArchivados = async (_req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT id, usuario_id_original, nombre, email, rol, departamento_nombre,
+             eliminado_por_nombre, eliminado_en,
+             jsonb_build_object(
+               'tickets_solicitados', jsonb_array_length(COALESCE(actividad->'tickets_solicitados', '[]'::jsonb)),
+               'tickets_asignados', jsonb_array_length(COALESCE(actividad->'tickets_asignados', '[]'::jsonb)),
+               'mensajes_tickets', jsonb_array_length(COALESCE(actividad->'mensajes_tickets', '[]'::jsonb)),
+               'tareas', jsonb_array_length(COALESCE(actividad->'tareas', '[]'::jsonb)),
+               'proyectos', jsonb_array_length(COALESCE(actividad->'proyectos', '[]'::jsonb)),
+               'conversaciones_directas', jsonb_array_length(COALESCE(actividad->'conversaciones_directas', '[]'::jsonb)),
+               'imagenes_evidencia', jsonb_array_length(COALESCE(actividad->'imagenes_evidencia', '[]'::jsonb))
+             ) AS resumen
+      FROM usuarios_archivados
+      ORDER BY eliminado_en DESC, id DESC
+    `);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    if (error.code === '42P01') {
+      return res.status(503).json({ success: false, message: 'Aplique las migraciones 005_archived_users.sql y 006_evidence_images.sql para habilitar el archivo de evidencias.' });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.leerUsuarioArchivado = async (req, res) => {
+  const archiveId = Number(req.params.archivoId);
+  if (!Number.isInteger(archiveId) || archiveId <= 0) {
+    return res.status(400).json({ success: false, message: 'El archivo seleccionado no es válido.' });
+  }
+  try {
+    const { rows } = await db.query(`
+      SELECT id, usuario_id_original, nombre, email, rol, departamento_nombre,
+             eliminado_por_nombre, eliminado_en, actividad,
+             COALESCE((
+               SELECT json_agg(json_build_object(
+                 'id', i.id,
+                 'nombre_archivo', i.nombre_archivo,
+                 'mime_type', i.mime_type,
+                 'tamano_bytes', i.tamano_bytes,
+                 'ticket_id_original', i.ticket_id_original,
+                 'created_at', i.created_at
+               ) ORDER BY i.id)
+               FROM usuarios_archivados_imagenes i
+               WHERE i.usuario_archivado_id = usuarios_archivados.id
+             ), '[]'::json) AS imagenes_archivadas
+      FROM usuarios_archivados
+      WHERE id = $1
+    `, [archiveId]);
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Archivo de usuario no encontrado.' });
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    if (error.code === '42P01') {
+      return res.status(503).json({ success: false, message: 'Aplique las migraciones 005_archived_users.sql y 006_evidence_images.sql para habilitar el archivo de evidencias.' });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.eliminarUsuario = async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ success: false, message: 'El usuario seleccionado no es válido.' });
+  }
+  if (userId === Number(req.user.id)) {
+    return res.status(400).json({ success: false, message: 'No puede eliminar su propia cuenta.' });
+  }
+
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await db.connect();
+    await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    transactionStarted = true;
+    const { rows } = await client.query(`
+      SELECT u.id, u.nombre, u.email, u.rol, u.departamento_id, u.activo, u.created_at,
+             d.nombre AS departamento_nombre
+      FROM usuarios u
+      LEFT JOIN departamentos d ON d.id = u.departamento_id
+      WHERE u.id = $1
+      FOR UPDATE OF u
+    `, [userId]);
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
+    }
+    const usuario = rows[0];
+    const { profile, activity, managerName } = await crearArchivoUsuario(client, usuario, req.user.id);
+    const archiveResult = await client.query(`
+      INSERT INTO usuarios_archivados
+        (usuario_id_original, nombre, email, rol, departamento_nombre, eliminado_por_id, eliminado_por_nombre, actividad)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      RETURNING id
+    `, [
+      userId,
+      usuario.nombre,
+      usuario.email,
+      usuario.rol,
+      usuario.departamento_nombre,
+      req.user.id,
+      managerName,
+      JSON.stringify({ usuario: profile, ...activity })
+    ]);
+    await client.query(`
+      INSERT INTO usuarios_archivados_imagenes
+        (usuario_archivado_id, imagen_original_id, ticket_id_original, nombre_archivo, mime_type, tamano_bytes, contenido, created_at)
+      SELECT $1, i.id, i.ticket_id, i.nombre_archivo, i.mime_type, i.tamano_bytes, i.contenido, i.created_at
+      FROM imagenes_evidencia i
+      WHERE i.subido_por_id = $2
+        OR i.ticket_id = ANY($3::int[])
+        OR i.mensaje_directo_id IN (
+          SELECT m.id
+          FROM mensajes_directos m
+          JOIN conversaciones_directas c ON c.id = m.conversacion_id
+          WHERE c.solicitante_id = $2 OR c.admin_id = $2
+        )
+    `, [archiveResult.rows[0].id, userId, activity.tickets_solicitados.map(ticket => ticket.id)]);
+    await client.query('DELETE FROM tickets WHERE usuario_creador_id = $1', [userId]);
+    const deletion = await client.query('DELETE FROM usuarios WHERE id = $1', [userId]);
+    if (deletion.rowCount !== 1) throw new Error('La cuenta no se pudo eliminar después de archivar su información.');
+    await client.query('COMMIT');
+    transactionStarted = false;
+    res.json({ success: true, message: 'Usuario eliminado; su perfil e historial quedaron en el archivo de usuarios.' });
+  } catch (error) {
+    if (transactionStarted && client) await client.query('ROLLBACK');
+    if (error.code === '42P01') {
+      return res.status(503).json({ success: false, message: 'Aplique las migraciones 005_archived_users.sql y 006_evidence_images.sql antes de eliminar usuarios.' });
+    }
+    if (error.code === '23503') {
+      return res.status(409).json({
+        success: false,
+        message: 'No se completó el archivo ni la eliminación. Revise que la migración 005_archived_users.sql esté aplicada y vuelva a intentarlo.'
+      });
+    }
+    if (error.code === '40001') {
+      return res.status(409).json({ success: false, message: 'La actividad del usuario cambió durante el archivo. Vuelva a intentar eliminarlo.' });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (client) client.release();
+  }
+};
+
+exports.desactivarUsuario = async (req, res) => {
   const { id } = req.params;
   if (Number(id) === Number(req.user.id)) {
-    return res.status(400).json({ success: false, message: 'No puede eliminar su propia cuenta.' });
+    return res.status(400).json({ success: false, message: 'No puede desactivar su propia cuenta.' });
   }
   try {
     const { rowCount } = await db.query('UPDATE usuarios SET activo = FALSE WHERE id = $1 AND activo = TRUE', [id]);
-    if (!rowCount) return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
-    res.json({ success: true, message: 'Usuario eliminado correctamente' });
+    if (!rowCount) return res.status(404).json({ success: false, message: 'Usuario no encontrado o ya está inactivo.' });
+    res.json({ success: true, message: 'Usuario desactivado correctamente.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -240,9 +550,9 @@ exports.listarTareas = async (req, res) => {
     const { rows } = await db.query(`
       SELECT t.id, t.ticket_id, t.asignado_a_id, t.titulo, t.descripcion, t.estado,
              to_char(t.fecha_limite, 'YYYY-MM-DD') AS fecha_limite,
-             u.nombre AS asignado_nombre, tk.titulo AS ticket_titulo
+             COALESCE(u.nombre, 'Sin responsable (cuenta archivada)') AS asignado_nombre, tk.titulo AS ticket_titulo
       FROM tareas_it t
-      JOIN usuarios u ON u.id = t.asignado_a_id
+      LEFT JOIN usuarios u ON u.id = t.asignado_a_id
       LEFT JOIN tickets tk ON tk.id = t.ticket_id
       ORDER BY t.fecha_limite ASC;
     `);
@@ -280,7 +590,7 @@ exports.eliminarTarea = async (req, res) => {
 
 exports.listarProyectos = async (req, res) => {
   try {
-    const { rows } = await db.query(`SELECT p.*, u.nombre AS creador_nombre FROM proyectos_ti p JOIN usuarios u ON u.id = p.creado_por_id ORDER BY p.created_at DESC`);
+    const { rows } = await db.query(`SELECT p.*, COALESCE(u.nombre, 'Usuario archivado') AS creador_nombre FROM proyectos_ti p LEFT JOIN usuarios u ON u.id = p.creado_por_id ORDER BY p.created_at DESC`);
     res.json({ success: true, data: rows });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

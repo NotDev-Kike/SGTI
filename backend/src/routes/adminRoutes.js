@@ -1,11 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/adminYUsuarioController');
+const evidenceImageController = require('../controllers/evidenceImageController');
 const { requireManager, requireInfrastructure } = require('../middleware/auth');
 
 // Usuarios y Rectificaciones
 router.get('/usuarios', requireManager, controller.listarUsuarios);
+router.get('/usuarios/archivo', requireManager, controller.listarUsuariosArchivados);
+router.get('/usuarios/archivo/:archivoId', requireManager, controller.leerUsuarioArchivado);
+router.get('/usuarios/archivo/:archivoId/imagenes/:imagenId', requireManager, evidenceImageController.leerImagenArchivada);
 router.post('/usuarios', requireManager, controller.crearModificarUsuario);
+router.patch('/usuarios/:id/desactivar', requireManager, controller.desactivarUsuario);
 router.delete('/usuarios/:id', requireManager, controller.eliminarUsuario);
 
 // Tickets de todos (Semáforo y control Admin)

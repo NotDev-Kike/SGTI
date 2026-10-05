@@ -56,10 +56,14 @@ SGTI/
 | `backend/src/controllers/directChatController.js` | Lista administradores y conversaciones directas, crea conversaciones al enviar mensajes y marca mensajes recibidos como leídos. |
 | `backend/scripts/bootstrap-admins.js` | Provisiona las cuatro cuentas administrativas a partir de variables de entorno, comprobando las áreas y usando una transacción. |
 | `backend/scripts/migrate-helpdesk.js` | Aplica en PostgreSQL las migraciones del catálogo, inventario y registros de entrega de infraestructura. |
+| `backend/scripts/migrate-user-archives.js` | Aplica el archivo histórico de usuarios y permite eliminar cuentas conservando su actividad asociada. |
+| `backend/scripts/migrate-evidence-images.js` | Crea almacenamiento privado en PostgreSQL para imágenes de evidencia en tickets y mensajes. |
 | `backend/migrations/001_direct_chat.sql` | DDL de conversaciones directas y mensajes directos, incluidas sus restricciones e índice. |
 | `backend/migrations/002_ticket_followup.sql` | Agrega a `tickets` los campos usados para fecha estimada, causa externa y actualización pública. |
 | `backend/migrations/003_helpdesk_catalog_inventory.sql` | Crea el catálogo de categorías, sus opciones iniciales y el inventario por departamento. |
 | `backend/migrations/004_infrastructure_deliveries.sql` | Crea los registros persistentes de entrega y sus artículos, conservando departamento y usuario como datos históricos. |
+| `backend/migrations/005_archived_users.sql` | Crea el archivo de usuarios eliminados y permite desvincular actividad histórica antes de eliminar la cuenta. |
+| `backend/migrations/006_evidence_images.sql` | Crea almacenamiento de imágenes de evidencia y preserva copias asociadas a cuentas archivadas. |
 | `backend/prisma/schema.prisma` | Describe dos modelos Prisma, `Ticket` e `HistorialTicketLog`. No describe toda la base que consulta la aplicación. |
 | `backend/prisma.config.ts` | Configuración de Prisma para sincronizar instrucciones/skills de herramientas de desarrollo. No define el esquema PostgreSQL operativo. |
 | `backend/package.json` | Dependencias y comandos del backend. El script de ejecución apunta a `src/index.js`. |
@@ -138,11 +142,12 @@ Este enlace solo funciona mientras los dos servidores estén ejecutándose y los
 
 - **Chat directo:** un usuario elige un administrador activo y envía mensajes. Un administrador consulta su bandeja por solicitante. Al abrir una conversación se marcan como leídos los mensajes recibidos. La interfaz refresca periódicamente mediante solicitudes HTTP; no usa WebSockets.
 - **Chat de ticket:** el backend expone lectura y envío de mensajes asociados a un ticket. No se observó una pantalla activa de chat por ticket en `App.jsx`.
-- **Usuarios:** el administrador crea cuentas, cambia rol, área y estado. La operación llamada eliminar desactiva la cuenta (`activo = FALSE`) en vez de borrar físicamente su registro.
+- **Evidencia con imágenes:** al crear un ticket, enviar un mensaje del ticket o escribir en Mensajes con IT se pueden adjuntar hasta cinco imágenes JPG, PNG, GIF o WebP de hasta 10 MB cada una. El adjunto es opcional y se puede enviar un mensaje compuesto solo por imagen. Los archivos se guardan en PostgreSQL y se sirven únicamente a participantes autenticados de la conversación o del ticket.
+- **Usuarios:** Gerencia de IT crea cuentas, cambia rol, área y estado, puede desactivar cuentas para conservar su historial o eliminarlas archivando el perfil y su actividad relacionada. El archivo de usuarios está disponible solo para Gerencia de IT y no conserva contraseñas ni credenciales. Al elegir un rol administrativo, el formulario selecciona el área correspondiente si está disponible en el catálogo.
 - **Tareas:** el administrador crea, actualiza y elimina tareas internas, con fecha límite, estado y asignación.
 - **Proyectos:** el administrador registra proyectos, cambia estado y descripción, o los elimina.
 - **Calendario:** reúne tickets abiertos y tareas con fecha límite; es una vista de consulta.
-- **Configuración:** guarda pares clave/valor. `modo_mantenimiento` impide la creación de tickets por usuarios finales; el ajuste de alertas por correo se guarda, pero no se encontró implementación de envío SMTP.
+- **Configuración:** guarda pares clave/valor. `modo_mantenimiento` impide la creación de tickets por usuarios finales. Los recordatorios usan SMTP configurado en el entorno del backend; la pantalla permite elegir destinatarios, activar el resumen y enviar una prueba.
 - **Métricas:** el panel calcula tickets asignados, resueltos, pendientes, vencidos y tasa de resolución para usuarios administrativos activos.
 
 ## 5. API HTTP
@@ -185,8 +190,11 @@ Todas las respuestas y los métodos se implementan en las rutas del backend. Sal
 | Método y ruta | Uso |
 | --- | --- |
 | `GET /api/admin/usuarios` | Listar usuarios y sus áreas. |
+| `GET /api/admin/usuarios/archivo` | Listar los perfiles archivados, solo Gerencia de IT. |
+| `GET /api/admin/usuarios/archivo/:archivoId` | Consultar perfil y actividad archivada, solo Gerencia de IT. |
 | `POST /api/admin/usuarios` | Crear usuario o modificar el existente si el cuerpo incluye `id`. |
-| `DELETE /api/admin/usuarios/:id` | Desactivar usuario; no permite desactivar la propia cuenta. |
+| `PATCH /api/admin/usuarios/:id/desactivar` | Desactivar usuario y conservar sus registros; no permite desactivar la propia cuenta. |
+| `DELETE /api/admin/usuarios/:id` | Archivar el perfil y la actividad relacionada, y eliminar la cuenta; no permite eliminar la propia cuenta. |
 | `GET /api/admin/tickets/eficiencia` | Métricas de tickets por administrador. |
 | `GET /api/admin/tickets/todos` | Listar tickets activos con información de creador, responsable y semáforo de vencimiento. |
 | `PUT /api/admin/tickets/:id/modificar` | Cambiar estado, área, datos del ticket o responsable; registra el cambio. |
@@ -242,8 +250,9 @@ Estos dos modelos no representan el contrato SQL actual de los controladores. Po
 - `backend/migrations/001_direct_chat.sql`: crea `conversaciones_directas` con clave primaria serial, referencias en cascada a usuarios, fecha de creación, par solicitante/administrador único y restricción para que no sea la misma persona. Crea `mensajes_directos` con referencias en cascada a conversación y remitente, texto no vacío, marca de lectura, fecha de creación e índice `(conversacion_id, created_at)`.
 - `backend/migrations/002_ticket_followup.sql`: agrega a `tickets` `fecha_estimada_resolucion TIMESTAMP`, `causa_externa BOOLEAN NOT NULL DEFAULT FALSE` y `actualizacion_publica TEXT`. Usa `ADD COLUMN IF NOT EXISTS`, por lo que se puede volver a ejecutar.
 - `backend/migrations/003_helpdesk_catalog_inventory.sql`: crea `categorias_ticket` e `inventario_departamentos`, índices asociados y cuatro categorías iniciales. Puede ejecutarse repetidamente.
+- `backend/migrations/005_archived_users.sql`: crea `usuarios_archivados` y convierte en opcionales las atribuciones a usuarios en mensajes, historial, tareas, proyectos, adjuntos y tickets asignados, para conservar esos registros al eliminar una cuenta.
 
-Las migraciones se encuentran en `backend/migrations/`, fuera de la carpeta de migraciones de Prisma. Para crear el catálogo y el inventario en la base configurada, ejecutar `npm run migrate:helpdesk` desde `backend/`; usa `DATABASE_URL` y aplica la migración 003.
+Las migraciones se encuentran en `backend/migrations/`, fuera de la carpeta de migraciones de Prisma. Para crear el catálogo y el inventario en la base configurada, ejecutar `npm run migrate:helpdesk`; para habilitar el archivo histórico, ejecutar `npm run migrate:user-archives`, ambos desde `backend/` y con `DATABASE_URL` configurada.
 
 ### 6.5 Relaciones funcionales
 
@@ -295,9 +304,14 @@ npm run dev
 npm start
 npm run bootstrap:admins
 npm run migrate:helpdesk
+npm run migrate:user-archives
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_direct_chat.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_ticket_followup.sql
 ```
+
+Aplicar `npm run migrate:user-archives` antes de habilitar la eliminación archivada de usuarios. La operación conserva el perfil, tickets solicitados/asignados, historial, mensajes, referencias a adjuntos, encuestas, tareas, proyectos, conversaciones directas, entregas e inventario asociado; elimina los tickets creados por esa cuenta de la bandeja operativa y conserva su copia completa en el archivo. Las asignaciones e identificadores de autor de otros registros se desvinculan cuando corresponda. Las referencias a archivos se archivan, pero el contenido binario se queda en su almacenamiento actual. No se archivan contraseñas.
+
+Después de aplicar `migrate:user-archives`, aplicar `npm run migrate:evidence-images` para habilitar imágenes. Los usuarios pueden adjuntar opcionalmente hasta cinco imágenes JPG, PNG, GIF o WebP de hasta 10 MB cada una al crear tickets, enviar mensajes en tickets o conversar directamente con IT. La API valida el formato real y sirve cada imagen únicamente a participantes autorizados. Los bytes se almacenan en PostgreSQL; al eliminar una cuenta, las imágenes relacionadas se copian al archivo histórico antes de borrar los tickets propios. Asegúrese de que la base disponga de espacio de almacenamiento y copias de respaldo adecuadas.
 
 Desde `frontend/`:
 
@@ -316,8 +330,8 @@ Antes de aprovisionar administradores o iniciar los flujos de tickets, la base d
 - `cors()` está habilitado sin restricción explícita de origen en el servidor revisado.
 - Las peticiones SQL observadas usan parámetros para los valores variables.
 - El control de administrador central se aplica a todas las rutas `/api/admin`. Las rutas de tickets y chat tienen autenticación y controles adicionales en sus controladores.
-- La API activa no ofrece carga de archivos adjuntos.
-- El ajuste `alertas_email` se persiste y aparece en la interfaz, pero no se encontró un servicio SMTP que envíe alertas.
+- Las cargas de evidencia admiten únicamente JPG, PNG, GIF y WebP, con un máximo de cinco imágenes de hasta 10 MB cada una por petición.
+- El servicio de correo valida la conexión SMTP y permite enviar una prueba desde Configuración. Para habilitar los resúmenes diarios, operaciones debe configurar `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM` en el entorno del backend y reiniciar el servicio. `SMTP_PASS` debe mantenerse fuera del repositorio; la hora del resumen se define con `EMAIL_REMINDER_HOUR` (0–23, zona horaria del servidor). La lista de destinatarios y la activación del resumen se guardan en Configuración.
 
 ## 9. Observaciones antes de presentar o desplegar
 

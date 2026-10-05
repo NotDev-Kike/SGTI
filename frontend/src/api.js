@@ -6,10 +6,11 @@ export function apiFetch(apiBaseUrl, path, options = {}) {
     token = null;
   }
 
+  const isMultipart = typeof FormData !== 'undefined' && options.body instanceof FormData;
   return fetch(`${apiBaseUrl}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(!isMultipart ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers
     }
