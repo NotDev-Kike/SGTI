@@ -227,6 +227,7 @@ export default function App() {
       localStorage.setItem('sgti_user', JSON.stringify(currentUser));
       cargarDatosGlobales();
       if (currentUser.isAdmin) cargarDatosAdministrativos();
+      else cargarDatosPlanificacion();
     } else {
       localStorage.removeItem('sgti_user');
     }
@@ -293,7 +294,10 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser || currentUser.isAdmin) return undefined;
-    const refresh = window.setInterval(cargarDatosGlobales, 10000);
+    const refresh = window.setInterval(() => {
+      cargarDatosGlobales();
+      cargarDatosPlanificacion();
+    }, 10000);
     return () => window.clearInterval(refresh);
   }, [currentUser]);
 
@@ -320,6 +324,13 @@ export default function App() {
     apiFetch(API_BASE_URL, '/api/admin/calendario').then(res => res.json()).then(data => {
       if (data.success) setCalendario(data.data);
     }).catch(() => {});
+  };
+
+  const cargarDatosPlanificacion = () => {
+    apiFetch(API_BASE_URL, '/api/admin/tareas').then(res => res.json()).then(data => {
+      if (data.success) setTareas(data.data);
+    }).catch(() => {});
+    cargarCalendario();
   };
 
   const cargarDatosAdministrativos = () => {
@@ -831,7 +842,7 @@ export default function App() {
             </div>
           </>}
 
-          {currentUser.isAdmin && <>
+          <>
             {tituloNav('Planificación', 'planificacion')}
             <div id="nav-section-planificacion" aria-labelledby="nav-heading-planificacion" hidden={!seccionesAbiertas.planificacion}>
               <button 
@@ -846,14 +857,12 @@ export default function App() {
               >
                 Tareas
               </button>
-              <button 
+              {currentUser.isAdmin && <button
                 onClick={() => { setActiveTab('proyectos'); setSidebarOpen(false); }}
                 className={claseNav('proyectos', 'planificacion')}
-              >
-                Proyectos de IT
-              </button>
+              >Proyectos de IT</button>}
             </div>
-          </>}
+          </>
 
           {currentUser.rol === 'admin_infra' && <>
             {tituloNav('Infraestructura', 'infraestructura')}
@@ -1456,10 +1465,10 @@ export default function App() {
           {activeTab === 'usuarios_archivo' && currentUser.rol === 'gerente_it' && <ArchivedUsers />}
 
           {/* CALENDARIO INTERACTIVO */}
-          {activeTab === 'calendario' && currentUser.isAdmin && (
+          {activeTab === 'calendario' && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-900">Calendario IT</h2>
+                <h2 className="text-xl font-bold text-slate-900">{currentUser.isAdmin ? 'Calendario IT' : 'Mi calendario'}</h2>
                 <div className="flex items-center gap-3">
                   <button aria-label="Mes anterior" onClick={() => setMesCalendario(new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() - 1, 1))} className="border rounded px-3 py-1">‹</button>
                   <strong className="min-w-36 text-center">{mesCalendario.toLocaleDateString('es', { month: 'long', year: 'numeric' })}</strong>
@@ -1489,31 +1498,36 @@ export default function App() {
           )}
 
           {/* TAREAS PENDIENTES */}
-          {activeTab === 'tareas' && currentUser.isAdmin && (
+          {activeTab === 'tareas' && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">Organización de Tareas Internas</h2>
+              <h2 className="text-xl font-bold text-slate-900">{currentUser.isAdmin ? 'Organización de Tareas Internas' : 'Mis tareas'}</h2>
               <form onSubmit={event => {
                 event.preventDefault();
                 apiFetch(API_BASE_URL, '/api/admin/tareas', { method: 'POST', body: JSON.stringify(formTarea) }).then(res => res.json()).then(data => {
                   if (!data.success) throw new Error(data.message || 'No se pudo guardar la tarea.');
                   setFormTarea({ id: null, titulo: '', descripcion: '', asignado_a_id: currentUser.id, fecha_limite: '', estado: 'pendiente' });
-                  cargarDatosAdministrativos();
+                  if (currentUser.isAdmin) cargarDatosAdministrativos();
+                  else cargarDatosPlanificacion();
                 }).catch(error => mostrarAviso(error.message, 'error'));
               }} className="grid sm:grid-cols-2 gap-3 border-b pb-5">
                 <input placeholder="Título de tarea" required value={formTarea.titulo} onChange={e => setFormTarea({ ...formTarea, titulo: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input type="date" required value={formTarea.fecha_limite} onChange={e => setFormTarea({ ...formTarea, fecha_limite: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input placeholder="Descripción" value={formTarea.descripcion} onChange={e => setFormTarea({ ...formTarea, descripcion: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
-                <label className="text-xs font-semibold text-slate-600">Responsable
+                {currentUser.isAdmin && <label className="text-xs font-semibold text-slate-600">Responsable
                   <select required value={formTarea.asignado_a_id || currentUser.id} onChange={e => setFormTarea({ ...formTarea, asignado_a_id: Number(e.target.value) })} className="mt-1 w-full px-3 py-2 border rounded-lg bg-white text-sm font-normal text-slate-800">
                     {currentUser.rol !== 'gerente_it' && <option value={currentUser.id}>{currentUser.nombre}</option>}
                     {usuarios.filter(usuario => usuario.activo && ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'].includes(usuario.rol)).map(usuario => <option key={usuario.id} value={usuario.id}>{usuario.nombre}</option>)}
                   </select>
-                </label>
+                </label>}
                 <button className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">{formTarea.id ? 'Guardar cambios' : 'Agregar tarea'}</button>
               </form>
               <div className="divide-y">{tareas.map(tarea => <div key={tarea.id} className="py-3 flex justify-between gap-3 text-sm">
-                <div><strong>{tarea.titulo}</strong><div className="text-xs text-slate-500">{tarea.descripcion} · {tarea.asignado_nombre} · {parseLocalDate(tarea.fecha_limite).toLocaleDateString()}</div></div>
-                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', asignado_a_id: tarea.asignado_a_id, fecha_limite: String(tarea.fecha_limite).slice(0, 10), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(() => cargarDatosAdministrativos())} className="text-red-700 text-xs">Eliminar</button></div>
+                <div><strong>{tarea.titulo}</strong><div className="text-xs text-slate-500">{tarea.descripcion}{currentUser.isAdmin ? ` · ${tarea.asignado_nombre}` : ''} · {parseLocalDate(tarea.fecha_limite).toLocaleDateString()}</div></div>
+                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', asignado_a_id: tarea.asignado_a_id, fecha_limite: String(tarea.fecha_limite).slice(0, 10), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
+                  if (!data.success) throw new Error(data.message || 'No se pudo eliminar la tarea.');
+                  if (currentUser.isAdmin) cargarDatosAdministrativos();
+                  else cargarDatosPlanificacion();
+                }).catch(error => mostrarAviso(error.message, 'error'))} className="text-red-700 text-xs">Eliminar</button></div>
               </div>)}</div>
             </div>
           )}

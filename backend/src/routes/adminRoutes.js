@@ -2,7 +2,15 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/adminYUsuarioController');
 const evidenceImageController = require('../controllers/evidenceImageController');
-const { requireManager, requireInfrastructure } = require('../middleware/auth');
+const { requireAdmin, requireManager, requireInfrastructure } = require('../middleware/auth');
+
+// Planificación personal: usuarios finales solo acceden a sus propias tareas y calendario.
+router.get('/tareas', controller.listarTareas);
+router.post('/tareas', controller.guardarTarea);
+router.delete('/tareas/:id', controller.eliminarTarea);
+router.get('/calendario', controller.listarCalendario);
+
+router.use(requireAdmin);
 
 // Usuarios y Rectificaciones
 router.get('/usuarios', requireManager, controller.listarUsuarios);
@@ -25,10 +33,6 @@ router.post('/proyectos-ti', controller.gestionarProyectoTI);
 router.delete('/proyectos-ti/:id', controller.eliminarProyectoTI);
 
 // Organización administrativa
-router.get('/tareas', controller.listarTareas);
-router.post('/tareas', controller.guardarTarea);
-router.delete('/tareas/:id', controller.eliminarTarea);
-router.get('/calendario', controller.listarCalendario);
 router.get('/configuraciones', requireManager, controller.leerConfiguracion);
 router.put('/configuraciones', requireManager, controller.guardarConfiguracion);
 router.get('/configuraciones/correo/estado', requireManager, controller.estadoCorreo);

@@ -15,7 +15,7 @@ app.use('/api/auth', require('./routes/authRoutes'));
 // Importar Rutas
 const ticketRoutes = require('./routes/ticketRoutes');
 app.use('/api/tickets', ticketRoutes);
-app.use('/api/admin', require('./middleware/auth').authenticate, require('./middleware/auth').requireAdmin, require('./routes/adminRoutes'));
+app.use('/api/admin', require('./middleware/auth').authenticate, require('./routes/adminRoutes'));
 
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || '0.0.0.0';

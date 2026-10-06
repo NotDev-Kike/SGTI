@@ -201,13 +201,13 @@ Todas las respuestas y los métodos se implementan en las rutas del backend. Sal
 | `GET /api/admin/tickets/todos` | Listar tickets activos con información de creador, responsable y semáforo de vencimiento. |
 | `PUT /api/admin/tickets/:id/modificar` | Cambiar estado, área, datos del ticket o responsable; registra el cambio. |
 | `PUT /api/admin/tickets/:id/seguimiento` | Publicar seguimiento, causa externa, fecha estimada o resolución. |
-| `GET /api/admin/tareas` | Listar tareas. |
-| `POST /api/admin/tareas` | Crear o actualizar tarea (con `id`). |
-| `DELETE /api/admin/tareas/:id` | Eliminar tarea. |
+| `GET /api/admin/tareas` | Administradores listan todas las tareas; cada usuario final solo ve sus tareas asignadas. |
+| `POST /api/admin/tareas` | Administradores crean o actualizan tareas; usuarios finales crean y actualizan solo sus tareas personales. |
+| `DELETE /api/admin/tareas/:id` | Administradores eliminan tareas; usuarios finales solo pueden eliminar sus propias tareas. |
 | `GET /api/admin/proyectos-ti` | Listar proyectos. |
 | `POST /api/admin/proyectos-ti` | Crear o actualizar proyecto (con `id`). |
 | `DELETE /api/admin/proyectos-ti/:id` | Eliminar proyecto. |
-| `GET /api/admin/calendario` | Listar eventos de tickets abiertos y tareas. |
+| `GET /api/admin/calendario` | Administradores ven los eventos de IT; cada usuario final solo ve sus tickets y tareas. |
 | `GET /api/admin/configuraciones` | Leer configuración. |
 | `PUT /api/admin/configuraciones` | Guardar uno o más ajustes como pares clave/valor. |
 

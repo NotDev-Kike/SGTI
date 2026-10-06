@@ -2,6 +2,7 @@ const db = require('../config/db');
 const { hashPassword } = require('./authController');
 const emailService = require('../services/emailService');
 const rolesPermitidos = ['usuario_final', 'gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+const rolesAdminPlanificacion = new Set(['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo']);
 const consultaEntregas = `
   SELECT e.id, e.departamento_id, e.departamento_nombre, e.destinatario,
          to_char(e.fecha_entrega, 'YYYY-MM-DD') AS fecha_entrega,
@@ -569,6 +570,7 @@ exports.guardarEntrega = async (req, res) => {
 
 exports.listarTareas = async (req, res) => {
   try {
+    const esAdmin = rolesAdminPlanificacion.has(req.user.rol);
     const { rows } = await db.query(`
       SELECT t.id, t.ticket_id, t.asignado_a_id, t.titulo, t.descripcion, t.estado,
              to_char(t.fecha_limite, 'YYYY-MM-DD') AS fecha_limite,
@@ -576,8 +578,9 @@ exports.listarTareas = async (req, res) => {
       FROM tareas_it t
       LEFT JOIN usuarios u ON u.id = t.asignado_a_id
       LEFT JOIN tickets tk ON tk.id = t.ticket_id
+      ${esAdmin ? '' : 'WHERE t.asignado_a_id = $1'}
       ORDER BY t.fecha_limite ASC;
-    `);
+    `, esAdmin ? [] : [req.user.id]);
     res.json({ success: true, data: rows });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -586,13 +589,18 @@ exports.listarTareas = async (req, res) => {
 
 exports.guardarTarea = async (req, res) => {
   const { id, titulo, descripcion, asignado_a_id, ticket_id, fecha_limite, estado } = req.body;
+  const esAdmin = rolesAdminPlanificacion.has(req.user.rol);
   if (!titulo?.trim() || !fecha_limite) {
     return res.status(400).json({ success: false, message: 'El título y la fecha límite son obligatorios.' });
   }
   try {
-    const result = id
-      ? await db.query(`UPDATE tareas_it SET titulo = $1, descripcion = $2, asignado_a_id = $3, ticket_id = $4, fecha_limite = $5, estado = $6 WHERE id = $7 RETURNING *`, [titulo.trim(), descripcion || null, asignado_a_id || req.user.id, ticket_id || null, fecha_limite, estado || 'pendiente', id])
-      : await db.query(`INSERT INTO tareas_it (titulo, descripcion, asignado_a_id, ticket_id, fecha_limite, estado) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`, [titulo.trim(), descripcion || null, asignado_a_id || req.user.id, ticket_id || null, fecha_limite, estado || 'pendiente']);
+    const result = esAdmin
+      ? id
+        ? await db.query(`UPDATE tareas_it SET titulo = $1, descripcion = $2, asignado_a_id = $3, ticket_id = $4, fecha_limite = $5, estado = $6 WHERE id = $7 RETURNING *`, [titulo.trim(), descripcion || null, asignado_a_id || req.user.id, ticket_id || null, fecha_limite, estado || 'pendiente', id])
+        : await db.query(`INSERT INTO tareas_it (titulo, descripcion, asignado_a_id, ticket_id, fecha_limite, estado) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`, [titulo.trim(), descripcion || null, asignado_a_id || req.user.id, ticket_id || null, fecha_limite, estado || 'pendiente'])
+      : id
+        ? await db.query(`UPDATE tareas_it SET titulo = $1, descripcion = $2, fecha_limite = $3 WHERE id = $4 AND asignado_a_id = $5 RETURNING *`, [titulo.trim(), descripcion || null, fecha_limite, id, req.user.id])
+        : await db.query(`INSERT INTO tareas_it (titulo, descripcion, asignado_a_id, ticket_id, fecha_limite, estado) VALUES ($1, $2, $3, NULL, $4, 'pendiente') RETURNING *`, [titulo.trim(), descripcion || null, req.user.id, fecha_limite]);
     if (id && !result.rowCount) return res.status(404).json({ success: false, message: 'Tarea no encontrada.' });
     res.status(id ? 200 : 201).json({ success: true, data: result.rows[0] });
   } catch (error) {
@@ -602,7 +610,11 @@ exports.guardarTarea = async (req, res) => {
 
 exports.eliminarTarea = async (req, res) => {
   try {
-    const { rowCount } = await db.query('DELETE FROM tareas_it WHERE id = $1', [req.params.id]);
+    const esAdmin = rolesAdminPlanificacion.has(req.user.rol);
+    const { rowCount } = await db.query(
+      `DELETE FROM tareas_it WHERE id = $1${esAdmin ? '' : ' AND asignado_a_id = $2'}`,
+      esAdmin ? [req.params.id] : [req.params.id, req.user.id]
+    );
     if (!rowCount) return res.status(404).json({ success: false, message: 'Tarea no encontrada.' });
     res.json({ success: true });
   } catch (error) {
@@ -703,17 +715,19 @@ exports.enviarCorreoPrueba = async (_req, res) => {
 
 exports.listarCalendario = async (req, res) => {
   try {
+    const esAdmin = rolesAdminPlanificacion.has(req.user.rol);
     const { rows } = await db.query(`
       SELECT id, titulo, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha, 'ticket' AS tipo, estado
-      FROM tickets WHERE estado <> 'resuelto'
+      FROM tickets
+      WHERE estado <> 'resuelto'${esAdmin ? '' : ' AND usuario_creador_id = $1'}
       UNION ALL
       SELECT id, titulo, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha, 'tarea' AS tipo, estado
       FROM tareas_it t
-      WHERE t.ticket_id IS NULL OR NOT EXISTS (
+      WHERE ${esAdmin ? '' : 't.asignado_a_id = $1 AND ('}t.ticket_id IS NULL OR NOT EXISTS (
         SELECT 1 FROM tickets tk WHERE tk.id = t.ticket_id AND tk.estado = 'resuelto'
-      )
+      )${esAdmin ? '' : ')'}
       ORDER BY fecha ASC;
-    `);
+    `, esAdmin ? [] : [req.user.id]);
     res.json({ success: true, data: rows });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
