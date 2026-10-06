@@ -331,12 +331,8 @@ Antes de aprovisionar administradores o iniciar los flujos de tickets, la base d
 - Los usuarios pueden adjuntar evidencia opcional (JPG, PNG, GIF o WebP; hasta cinco imágenes de 10 MB cada una) en tickets, mensajes de tickets y conversaciones directas con IT. Las cargas se guardan en PostgreSQL y la lectura requiere pertenecer al ticket o conversación; al archivar una cuenta, sus imágenes relacionadas también quedan en el archivo histórico.
 - El servicio de correo valida la conexión SMTP y permite enviar una prueba desde Configuración. Para habilitar los resúmenes diarios, operaciones debe configurar `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM` en el entorno del backend y reiniciar el servicio. `SMTP_PASS` debe mantenerse fuera del repositorio; la hora del resumen se define con `EMAIL_REMINDER_HOUR` (0–23, zona horaria del servidor). La lista de destinatarios y la activación del resumen se guardan en Configuración.
 
-## 9. Observaciones antes de presentar o desplegar
+## 9. Observaciones
 
-1. **El esquema base de PostgreSQL falta en el repositorio.** Para afirmar que la base de datos está documentada al 100 %, hace falta obtener un esquema de la instancia (`pg_dump --schema-only`) o recuperar el DDL original. Este informe separa lo explícito de lo inferido.
+1. **El esquema base de PostgreSQL falta en el repositorio por motivos de privacidad ya sea datos ficticios o privados.** Para afirmar que la base de datos está documentada al 100 %, hace falta obtener un esquema de la instancia (`pg_dump --schema-only`) o recuperar el DDL original. Este informe separa lo explícito de lo inferido.
 2. **Prisma y el SQL operativo difieren.** Alinear `schema.prisma` y las migraciones con las tablas reales antes de usar Prisma para migraciones.
 3. **La edición de tareas no permite cambiar su estado.** Ya permite editar título, descripción, fecha límite y responsable; para añadir opciones de estado sin arriesgar valores incompatibles, primero hay que confirmar el tipo y los valores válidos de `tareas_it.estado` en el esquema real.
-
-## 10. Resumen para exposición
-
-SGTI centraliza solicitudes de soporte de IT en tickets que tienen solicitante, área destino, prioridad, estado, fecha límite y responsable. Los usuarios crean y siguen sus solicitudes, conversan con el área técnica y califican el servicio una vez resuelto. El personal administrativo clasifica y asigna tickets, registra avances y resoluciones y utiliza herramientas complementarias de usuarios, métricas, tareas, proyectos, calendario y configuración. La aplicación se compone de React, Express y PostgreSQL; la API protege sesiones con tokens firmados y almacena contraseñas con hash. El repositorio, sin embargo, no incluye el DDL completo de la base operativa, por lo que para documentar la base desplegada sin inferencias se necesita exportar su esquema real.
