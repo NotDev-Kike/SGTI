@@ -1,6 +1,6 @@
-# SGTI
+# Informe técnico del SGTI
 
-**Fecha de elaboración:** 2 de octubre de 2026  
+**Fecha de elaboración:** 27 de septiembre de 2026  
 **Alcance:** aplicación web, API, operaciones, configuración y estructura de datos que se puede comprobar en el repositorio.
 
 ## 1. Resumen del sistema
@@ -58,14 +58,13 @@ SGTI/
 | `backend/scripts/migrate-helpdesk.js` | Aplica en PostgreSQL las migraciones del catálogo, inventario y registros de entrega de infraestructura. |
 | `backend/scripts/migrate-user-archives.js` | Aplica el archivo histórico de usuarios y permite eliminar cuentas conservando su actividad asociada. |
 | `backend/scripts/migrate-evidence-images.js` | Crea almacenamiento privado en PostgreSQL para imágenes de evidencia en tickets y mensajes. |
-| `backend/scripts/migrate-remote-assistance.js` | Crea la cola de solicitudes de asistencia remota con AnyDesk. |
 | `backend/migrations/001_direct_chat.sql` | DDL de conversaciones directas y mensajes directos, incluidas sus restricciones e índice. |
 | `backend/migrations/002_ticket_followup.sql` | Agrega a `tickets` los campos usados para fecha estimada, causa externa y actualización pública. |
 | `backend/migrations/003_helpdesk_catalog_inventory.sql` | Crea el catálogo de categorías, sus opciones iniciales y el inventario por departamento. |
 | `backend/migrations/004_infrastructure_deliveries.sql` | Crea los registros persistentes de entrega y sus artículos, conservando departamento y usuario como datos históricos. |
 | `backend/migrations/005_archived_users.sql` | Crea el archivo de usuarios eliminados y permite desvincular actividad histórica antes de eliminar la cuenta. |
 | `backend/migrations/006_evidence_images.sql` | Crea almacenamiento de imágenes de evidencia y preserva copias asociadas a cuentas archivadas. |
-| `backend/migrations/007_remote_assistance.sql` | Crea solicitudes remotas, asignación a un administrador y estados de atención. |
+| `backend/migrations/007_remote_assistance.sql` | Crea la cola de solicitudes remotas de usuarios finales y su asignación a personal de IT. |
 | `backend/prisma/schema.prisma` | Describe dos modelos Prisma, `Ticket` e `HistorialTicketLog`. No describe toda la base que consulta la aplicación. |
 | `backend/prisma.config.ts` | Configuración de Prisma para sincronizar instrucciones/skills de herramientas de desarrollo. No define el esquema PostgreSQL operativo. |
 | `backend/package.json` | Dependencias y comandos del backend. El script de ejecución apunta a `src/index.js`. |
@@ -253,8 +252,10 @@ Estos dos modelos no representan el contrato SQL actual de los controladores. Po
 - `backend/migrations/002_ticket_followup.sql`: agrega a `tickets` `fecha_estimada_resolucion TIMESTAMP`, `causa_externa BOOLEAN NOT NULL DEFAULT FALSE` y `actualizacion_publica TEXT`. Usa `ADD COLUMN IF NOT EXISTS`, por lo que se puede volver a ejecutar.
 - `backend/migrations/003_helpdesk_catalog_inventory.sql`: crea `categorias_ticket` e `inventario_departamentos`, índices asociados y cuatro categorías iniciales. Puede ejecutarse repetidamente.
 - `backend/migrations/005_archived_users.sql`: crea `usuarios_archivados` y convierte en opcionales las atribuciones a usuarios en mensajes, historial, tareas, proyectos, adjuntos y tickets asignados, para conservar esos registros al eliminar una cuenta.
+- `backend/migrations/007_remote_assistance.sql`: crea la cola de asistencia remota por AnyDesk, con estados, asignación de responsable y límite de una solicitud activa por usuario.
 
 Las migraciones se encuentran en `backend/migrations/`, fuera de la carpeta de migraciones de Prisma. Para crear el catálogo y el inventario en la base configurada, ejecutar `npm run migrate:helpdesk`; para habilitar el archivo histórico, ejecutar `npm run migrate:user-archives`, ambos desde `backend/` y con `DATABASE_URL` configurada.
+Después de aplicar el archivo de usuarios, ejecutar `npm run migrate:evidence-images` para crear las tablas de imágenes adjuntas y copias de imágenes para el archivo histórico. Luego, ejecutar `npm run migrate:remote-assistance` para habilitar la cola de soporte remoto mediante AnyDesk.
 
 ### 6.5 Relaciones funcionales
 
@@ -306,16 +307,9 @@ npm run dev
 npm start
 npm run bootstrap:admins
 npm run migrate:helpdesk
-npm run migrate:user-archives
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_direct_chat.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_ticket_followup.sql
 ```
-
-Aplicar `npm run migrate:user-archives` antes de habilitar la eliminación archivada de usuarios. La operación conserva el perfil, tickets solicitados/asignados, historial, mensajes, referencias a adjuntos, encuestas, tareas, proyectos, conversaciones directas, entregas e inventario asociado; elimina los tickets creados por esa cuenta de la bandeja operativa y conserva su copia completa en el archivo. Las asignaciones e identificadores de autor de otros registros se desvinculan cuando corresponda. Las referencias a archivos se archivan, pero el contenido binario se queda en su almacenamiento actual. No se archivan contraseñas.
-
-Después de aplicar `migrate:user-archives`, aplicar `npm run migrate:evidence-images` para habilitar imágenes. Los usuarios pueden adjuntar opcionalmente hasta cinco imágenes JPG, PNG, GIF o WebP de hasta 10 MB cada una al crear tickets, enviar mensajes en tickets o conversar directamente con IT. La API valida el formato real y sirve cada imagen únicamente a participantes autorizados; en la galería se puede ampliar y descargar la evidencia.
-
-Para habilitar la asistencia remota, después de las migraciones anteriores ejecutar `npm run migrate:remote-assistance` desde `backend/`. El usuario final registra su ID o alias de AnyDesk y aparece en la cola compartida de Soporte. Cada administrador puede tomar una solicitud a la vez; al abrir AnyDesk, el solicitante aún debe aceptar la conexión en su dispositivo. Las solicitudes se incluyen en el archivo histórico de usuarios. Las imágenes y los IDs de AnyDesk se guardan en PostgreSQL; asegúrese de contar con espacio y respaldos adecuados.
 
 Desde `frontend/`:
 
@@ -334,7 +328,7 @@ Antes de aprovisionar administradores o iniciar los flujos de tickets, la base d
 - `cors()` está habilitado sin restricción explícita de origen en el servidor revisado.
 - Las peticiones SQL observadas usan parámetros para los valores variables.
 - El control de administrador central se aplica a todas las rutas `/api/admin`. Las rutas de tickets y chat tienen autenticación y controles adicionales en sus controladores.
-- Las cargas de evidencia admiten únicamente JPG, PNG, GIF y WebP, con un máximo de cinco imágenes de hasta 10 MB cada una por petición.
+- Los usuarios pueden adjuntar evidencia opcional (JPG, PNG, GIF o WebP; hasta cinco imágenes de 10 MB cada una) en tickets, mensajes de tickets y conversaciones directas con IT. Las cargas se guardan en PostgreSQL y la lectura requiere pertenecer al ticket o conversación; al archivar una cuenta, sus imágenes relacionadas también quedan en el archivo histórico.
 - El servicio de correo valida la conexión SMTP y permite enviar una prueba desde Configuración. Para habilitar los resúmenes diarios, operaciones debe configurar `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM` en el entorno del backend y reiniciar el servicio. `SMTP_PASS` debe mantenerse fuera del repositorio; la hora del resumen se define con `EMAIL_REMINDER_HOUR` (0–23, zona horaria del servidor). La lista de destinatarios y la activación del resumen se guardan en Configuración.
 
 ## 9. Observaciones antes de presentar o desplegar
@@ -342,3 +336,7 @@ Antes de aprovisionar administradores o iniciar los flujos de tickets, la base d
 1. **El esquema base de PostgreSQL falta en el repositorio.** Para afirmar que la base de datos está documentada al 100 %, hace falta obtener un esquema de la instancia (`pg_dump --schema-only`) o recuperar el DDL original. Este informe separa lo explícito de lo inferido.
 2. **Prisma y el SQL operativo difieren.** Alinear `schema.prisma` y las migraciones con las tablas reales antes de usar Prisma para migraciones.
 3. **La edición de tareas no permite cambiar su estado.** Ya permite editar título, descripción, fecha límite y responsable; para añadir opciones de estado sin arriesgar valores incompatibles, primero hay que confirmar el tipo y los valores válidos de `tareas_it.estado` en el esquema real.
+
+## 10. Resumen para exposición
+
+SGTI centraliza solicitudes de soporte de IT en tickets que tienen solicitante, área destino, prioridad, estado, fecha límite y responsable. Los usuarios crean y siguen sus solicitudes, conversan con el área técnica y califican el servicio una vez resuelto. El personal administrativo clasifica y asigna tickets, registra avances y resoluciones y utiliza herramientas complementarias de usuarios, métricas, tareas, proyectos, calendario y configuración. La aplicación se compone de React, Express y PostgreSQL; la API protege sesiones con tokens firmados y almacena contraseñas con hash. El repositorio, sin embargo, no incluye el DDL completo de la base operativa, por lo que para documentar la base desplegada sin inferencias se necesita exportar su esquema real.
