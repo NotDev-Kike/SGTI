@@ -1,6 +1,6 @@
 # Informe técnico del SGTI
 
-**Fecha de elaboración:** 27 de septiembre de 2026  
+**Fecha de elaboración:** 06 de octubre de 2026  
 **Alcance:** aplicación web, API, operaciones, configuración y estructura de datos que se puede comprobar en el repositorio.
 
 ## 1. Resumen del sistema
