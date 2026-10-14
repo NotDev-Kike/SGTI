@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Login from './Login';
 import ApiReference from './ApiReference';
-import ArchivedUsers from './ArchivedUsers';
-import { EvidenceGallery, EvidencePicker } from './EvidenceImages';
-import RemoteAssistance from './RemoteAssistance';
 import { apiFetch } from '../api';
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -14,14 +11,6 @@ const parseLocalDate = value => {
     if (dateOnly) return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
   }
   return new Date(value);
-};
-
-const esFechaAnteriorAHoy = value => {
-  const date = parseLocalDate(value);
-  const today = new Date();
-  date.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-  return date < today;
 };
 
 const formatLocalDateTime = value => {
@@ -35,63 +24,6 @@ const formatLocalDateTime = value => {
     : new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('es', { dateStyle: 'short', timeStyle: 'medium', hour12: false });
 };
-
-const crearFormularioEntrega = () => {
-  const date = new Date();
-  const fecha = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
-  return { departamento_id: '', destinatario: '', fecha_entrega: fecha, observaciones: '', articulos: [{ articulo: '', cantidad: 1, detalles: '' }] };
-};
-
-const departamentoPorRol = {
-  gerente_it: 'Gerencia de IT',
-  admin_infra: 'Infraestructura',
-  admin_gps: 'GPS/rutas',
-  admin_desarrollo: 'Desarrollo'
-};
-
-const normalizarNombre = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase();
-
-const escaparHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-}[character]));
-
-const crearDocumentoEntrega = entrega => `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Constancia de entrega ${escaparHtml(entrega.id)}</title>
-  <style>
-    body { color: #17212b; font: 14px Arial, sans-serif; margin: 40px auto; max-width: 800px; padding: 0 28px; }
-    header { border-bottom: 3px solid #087e73; margin-bottom: 28px; padding-bottom: 16px; }
-    h1 { font-size: 24px; margin: 4px 0; }
-    .brand { color: #087e73; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-    .meta { display: grid; gap: 12px 24px; grid-template-columns: 1fr 1fr; margin: 24px 0; }
-    .label { color: #536170; display: block; font-size: 11px; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; }
-    table { border-collapse: collapse; margin-top: 24px; width: 100%; }
-    th, td { border-bottom: 1px solid #ccd4da; padding: 10px 8px; text-align: left; vertical-align: top; }
-    th { background: #f1f5f5; font-size: 11px; text-transform: uppercase; }
-    .notes { border-top: 1px solid #ccd4da; margin-top: 24px; padding-top: 12px; }
-    .signatures { display: grid; gap: 48px; grid-template-columns: 1fr 1fr; margin-top: 88px; }
-    .signature { border-top: 1px solid #536170; padding-top: 8px; text-align: center; }
-    @media print { body { margin: 0; max-width: none; padding: 0; } }
-  </style>
-</head>
-<body>
-  <header><div class="brand">SGTI · Infraestructura</div><h1>Constancia de entrega</h1><div>Folio #${escaparHtml(entrega.id)}</div></header>
-  <div class="meta">
-    <div><span class="label">Fecha de entrega</span>${escaparHtml(entrega.fecha_entrega)}</div>
-    <div><span class="label">Departamento</span>${escaparHtml(entrega.departamento_nombre)}</div>
-    <div><span class="label">Recibe</span>${escaparHtml(entrega.destinatario)}</div>
-    <div><span class="label">Entrega</span>${escaparHtml(entrega.entregado_por_nombre)}</div>
-  </div>
-  <table><thead><tr><th>Artículo</th><th>Cantidad</th><th>Detalles</th></tr></thead><tbody>
-    ${(entrega.articulos || []).map(item => `<tr><td>${escaparHtml(item.articulo)}</td><td>${escaparHtml(item.cantidad)}</td><td>${escaparHtml(item.detalles || '—')}</td></tr>`).join('')}
-  </tbody></table>
-  ${entrega.observaciones ? `<div class="notes"><span class="label">Observaciones</span>${escaparHtml(entrega.observaciones)}</div>` : ''}
-  <div class="signatures"><div class="signature">Recibí conforme · ${escaparHtml(entrega.destinatario)}</div><div class="signature">Entregó · ${escaparHtml(entrega.entregado_por_nombre)}</div></div>
-</body>
-</html>`;
 
 const etiquetaEstadoTicket = estado => ({
   nuevo: 'Nuevo', abierto: 'Abierto', en_proceso: 'En proceso', resuelto: 'Resuelto', vencido: 'Vencido'
@@ -112,23 +44,11 @@ export default function App() {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [seccionesAbiertas, setSeccionesAbiertas] = useState({
-    principal: false,
-    tickets: false,
-    administracion: false,
-    planificacion: false,
-    infraestructura: false,
-    referencia: false
-  });
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [dashboardBandeja, setDashboardBandeja] = useState('asignados');
   const [busqueda, setBusqueda] = useState('');
   const [ticketSeleccionado, setTicketSeleccionado] = useState(null);
   const [mensajesTicket, setMensajesTicket] = useState([]);
   const [nuevoMensajeTicket, setNuevoMensajeTicket] = useState('');
-  const [imagenesTicket, setImagenesTicket] = useState([]);
-  const [archivosTicket, setArchivosTicket] = useState([]);
-  const [archivosMensajeTicket, setArchivosMensajeTicket] = useState([]);
 
   const [tickets, setTickets] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -140,22 +60,16 @@ export default function App() {
     { id: 'redes', nombre: 'Redes' }, { id: 'gps', nombre: 'GPS / Rutas' }
   ]);
   const [inventario, setInventario] = useState([]);
-  const [entregas, setEntregas] = useState([]);
-  const [formEntrega, setFormEntrega] = useState(crearFormularioEntrega);
-  const [guardandoEntrega, setGuardandoEntrega] = useState(false);
   const [eficienciaAdmins, setEficienciaAdmins] = useState([]);
   const [tareas, setTareas] = useState([]);
   const [proyectos, setProyectos] = useState([]);
   const [calendario, setCalendario] = useState([]);
   const [chatMensajes, setChatMensajes] = useState([]);
   const [conversaciones, setConversaciones] = useState([]);
-  const [solicitudesAsistenciaRemota, setSolicitudesAsistenciaRemota] = useState([]);
-  const [errorAsistenciaRemotaDashboard, setErrorAsistenciaRemotaDashboard] = useState('');
   const [adminsChat, setAdminsChat] = useState([]);
   const [chatDestinatario, setChatDestinatario] = useState('');
   const [usuarioHelpdeskSeleccionado, setUsuarioHelpdeskSeleccionado] = useState('');
   const [chatError, setChatError] = useState('');
-  const [seccionSoporte, setSeccionSoporte] = useState('mensajes');
   const [ticketEnEdicion, setTicketEnEdicion] = useState(null);
   const [areaAsignacion, setAreaAsignacion] = useState({});
   const [formSeguimientos, setFormSeguimientos] = useState({});
@@ -186,7 +100,6 @@ export default function App() {
 
   const [resolucionTextos, setResolucionTextos] = useState({});
   const [nuevoChat, setNuevoChat] = useState('');
-  const [archivosChat, setArchivosChat] = useState([]);
   const [formUsuario, setFormUsuario] = useState({ id: null, nombre: '', email: '', password: '', rol: 'usuario_final', departamento_id: null, activo: true });
   const [formCategoria, setFormCategoria] = useState({ id: null, nombre: '' });
   const [formActivo, setFormActivo] = useState({ id: null, departamento_id: '', nombre: '', tipo: 'Impresora', cantidad: 1, ubicacion: '', notas: '' });
@@ -227,7 +140,6 @@ export default function App() {
       localStorage.setItem('sgti_user', JSON.stringify(currentUser));
       cargarDatosGlobales();
       if (currentUser.isAdmin) cargarDatosAdministrativos();
-      else cargarDatosPlanificacion();
     } else {
       localStorage.removeItem('sgti_user');
     }
@@ -277,11 +189,6 @@ export default function App() {
       apiFetch(API_BASE_URL, '/api/chat/directo').then(res => res.json()).then(data => {
         if (data.success) setConversaciones(data.data);
       }).catch(() => {});
-      apiFetch(API_BASE_URL, '/api/asistencia-remota').then(res => res.json()).then(data => {
-        if (!data.success) throw new Error(data.message || 'No se pudo cargar la cola de asistencia remota.');
-        setSolicitudesAsistenciaRemota(data.data);
-        setErrorAsistenciaRemotaDashboard('');
-      }).catch(error => setErrorAsistenciaRemotaDashboard(error.message || 'No se pudo cargar la cola de asistencia remota.'));
       apiFetch(API_BASE_URL, '/api/admin/tickets/eficiencia').then(res => res.json()).then(data => {
         if (data.success) setEficienciaAdmins(data.data);
       }).catch(() => {});
@@ -294,10 +201,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser || currentUser.isAdmin) return undefined;
-    const refresh = window.setInterval(() => {
-      cargarDatosGlobales();
-      cargarDatosPlanificacion();
-    }, 10000);
+    const refresh = window.setInterval(cargarDatosGlobales, 10000);
     return () => window.clearInterval(refresh);
   }, [currentUser]);
 
@@ -324,13 +228,6 @@ export default function App() {
     apiFetch(API_BASE_URL, '/api/admin/calendario').then(res => res.json()).then(data => {
       if (data.success) setCalendario(data.data);
     }).catch(() => {});
-  };
-
-  const cargarDatosPlanificacion = () => {
-    apiFetch(API_BASE_URL, '/api/admin/tareas').then(res => res.json()).then(data => {
-      if (data.success) setTareas(data.data);
-    }).catch(() => {});
-    cargarCalendario();
   };
 
   const cargarDatosAdministrativos = () => {
@@ -363,11 +260,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!currentUser || currentUser.rol !== 'admin_infra' || !['inventario', 'entregas'].includes(activeTab)) return undefined;
-    apiFetch(API_BASE_URL, '/api/admin/infraestructura/inventario')
+    if (!currentUser || currentUser.rol !== 'admin_infra' || activeTab !== 'inventario') return undefined;
+    const cargarInventario = () => apiFetch(API_BASE_URL, '/api/admin/infraestructura/inventario')
       .then(res => res.json()).then(data => { if (data.success) setInventario(data.data); }).catch(() => {});
-    apiFetch(API_BASE_URL, '/api/admin/infraestructura/entregas')
-      .then(res => res.json()).then(data => { if (data.success) setEntregas(data.data); }).catch(() => {});
+    cargarInventario();
     return undefined;
   }, [currentUser, activeTab]);
 
@@ -421,40 +317,25 @@ export default function App() {
   const abrirDetalleTicket = ticket => {
     setTicketSeleccionado(ticket);
     setMensajesTicket([]);
-    setImagenesTicket([]);
     setNuevoMensajeTicket('');
     apiFetch(API_BASE_URL, `/api/chat/${ticket.id}/mensajes`).then(res => res.json()).then(data => {
       if (Array.isArray(data)) setMensajesTicket(data);
-    }).catch(() => {});
-    apiFetch(API_BASE_URL, `/api/chat/${ticket.id}/imagenes`).then(res => res.json()).then(data => {
-      if (data.success) setImagenesTicket(data.data);
     }).catch(() => {});
   };
 
   const enviarMensajeTicket = event => {
     event.preventDefault();
-    if (!ticketSeleccionado || (!nuevoMensajeTicket.trim() && !archivosMensajeTicket.length)) return;
-    const formData = new FormData();
-    formData.append('mensaje', nuevoMensajeTicket.trim());
-    archivosMensajeTicket.forEach(file => formData.append('imagenes', file));
+    if (!ticketSeleccionado || !nuevoMensajeTicket.trim()) return;
     apiFetch(API_BASE_URL, `/api/chat/${ticketSeleccionado.id}/mensajes`, {
       method: 'POST',
-      body: formData
+      body: JSON.stringify({ mensaje: nuevoMensajeTicket.trim() })
     }).then(res => res.json()).then(data => {
       if (data.error) throw new Error(data.error);
       setNuevoMensajeTicket('');
-      setArchivosMensajeTicket([]);
       return apiFetch(API_BASE_URL, `/api/chat/${ticketSeleccionado.id}/mensajes`).then(res => res.json());
     }).then(data => {
       if (Array.isArray(data)) setMensajesTicket(data);
     }).catch(error => mostrarAviso(error.message || 'No se pudo enviar el mensaje.', 'error'));
-  };
-
-  const crearPayloadChat = payload => {
-    const formData = new FormData();
-    Object.entries(payload).forEach(([key, value]) => formData.append(key, String(value ?? '')));
-    archivosChat.forEach(file => formData.append('imagenes', file));
-    return formData;
   };
 
   const editarTicketAdmin = () => {
@@ -475,7 +356,6 @@ export default function App() {
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
     setActiveTab('dashboard');
-    setSeccionesAbiertas({ principal: false, tickets: false, administracion: false, planificacion: false, infraestructura: false, referencia: false });
   };
 
   const handleLogout = () => {
@@ -483,68 +363,21 @@ export default function App() {
     localStorage.removeItem('sgti_user');
   };
 
-  const guardarListaEntrega = event => {
-    event.preventDefault();
-    setGuardandoEntrega(true);
-    apiFetch(API_BASE_URL, '/api/admin/infraestructura/entregas', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...formEntrega,
-        departamento_id: Number(formEntrega.departamento_id),
-        articulos: formEntrega.articulos.map(item => ({ ...item, cantidad: Number(item.cantidad) }))
-      })
-    }).then(res => res.json()).then(data => {
-      if (!data.success) throw new Error(data.message || 'No se pudo guardar la entrega.');
-      setEntregas(actual => [data.data, ...actual]);
-      setFormEntrega(crearFormularioEntrega());
-      mostrarAviso('Entrega guardada.');
-    }).catch(error => mostrarAviso(error.message, 'error')).finally(() => setGuardandoEntrega(false));
-  };
-
-  const descargarReporteEntrega = entrega => {
-    const archivo = new Blob([crearDocumentoEntrega(entrega)], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(archivo);
-    const enlace = document.createElement('a');
-    enlace.href = url;
-    enlace.download = `constancia-entrega-${entrega.id}.html`;
-    document.body.appendChild(enlace);
-    enlace.click();
-    enlace.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
-  const imprimirReporteEntrega = entrega => {
-    const ventana = window.open('', '_blank');
-    if (!ventana) {
-      mostrarAviso('El navegador bloqueó la ventana de impresión.', 'error');
-      return;
-    }
-    ventana.document.open();
-    ventana.document.write(crearDocumentoEntrega(entrega));
-    ventana.document.close();
-    ventana.focus();
-    ventana.print();
-  };
-
   // Crear Ticket (Usuarios Básicos)
   const handleCrearTicket = (e) => {
     e.preventDefault();
-    const formData = new FormData();
-    Object.entries({
-      ...formTicket,
-      fecha_limite: new Date(Date.now() + 86400000 * 2).toISOString()
-    }).forEach(([key, value]) => formData.append(key, value == null ? '' : String(value)));
-    archivosTicket.forEach(file => formData.append('imagenes', file));
     apiFetch(API_BASE_URL, '/api/tickets', {
       method: 'POST',
-      body: formData
+      body: JSON.stringify({
+        ...formTicket,
+        fecha_limite: new Date(Date.now() + 86400000 * 2).toISOString()
+      })
     })
       .then(res => res.json())
       .then(data => {
-        if (!data.success) throw new Error(data.message || data.error || 'No se pudo crear el ticket.');
+        if (!data.success) throw new Error(data.message || 'No se pudo crear el ticket.');
         cargarDatosGlobales();
         mostrarAviso(`Ticket clasificado como [${formTicket.tipo_solicitud.toUpperCase()}] creado con éxito.`);
-        setArchivosTicket([]);
         setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'Hardware', departamento_destino_id: '', prioridad: 'media' });
         setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'mis_tickets');
       })
@@ -614,53 +447,21 @@ export default function App() {
   };
   const etiquetasSeccion = {
     dashboard: 'Dashboard', crear_ticket: 'Crear ticket', todos_tickets: 'Tickets de todos', asignaciones: 'Asignación de tickets',
-    historial: 'Historial', usuarios: 'Gestión de usuarios', usuarios_archivo: 'Archivo de usuarios', categorias: 'Gestión de categorías', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
-    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento', entregas: 'Entrega de artículos'
+    historial: 'Historial', usuarios: 'Gestión de usuarios', categorias: 'Gestión de categorías', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
+    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento'
   };
   const estilosGrupoNav = {
-    principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
-    tickets: { fondo: 'bg-sky-50', titulo: 'text-sky-800', activo: 'border-sky-600 bg-sky-50 text-sky-900' },
-    administracion: { fondo: 'bg-emerald-50', titulo: 'text-emerald-800', activo: 'border-emerald-600 bg-emerald-50 text-emerald-900' },
-    planificacion: { fondo: 'bg-amber-50', titulo: 'text-amber-800', activo: 'border-amber-600 bg-amber-50 text-amber-900' },
-    infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', activo: 'border-teal-600 bg-teal-50 text-teal-900' },
-    referencia: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' }
+    principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', punto: 'bg-slate-500', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
+    tickets: { fondo: 'bg-sky-50', titulo: 'text-sky-800', punto: 'bg-sky-600', activo: 'border-sky-600 bg-sky-50 text-sky-900' },
+    administracion: { fondo: 'bg-emerald-50', titulo: 'text-emerald-800', punto: 'bg-emerald-600', activo: 'border-emerald-600 bg-emerald-50 text-emerald-900' },
+    planificacion: { fondo: 'bg-amber-50', titulo: 'text-amber-800', punto: 'bg-amber-600', activo: 'border-amber-600 bg-amber-50 text-amber-900' },
+    infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', punto: 'bg-teal-600', activo: 'border-teal-600 bg-teal-50 text-teal-900' }
   };
   const claseNav = (tab, grupo) => `w-full flex items-center gap-3 rounded-md border-l-2 px-3 py-2.5 font-medium transition ${activeTab === tab ? estilosGrupoNav[grupo].activo : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
-  const tituloNav = (texto, grupo) => <button
-    type="button"
-    id={`nav-heading-${grupo}`}
-    aria-expanded={seccionesAbiertas[grupo]}
-    aria-controls={`nav-section-${grupo}`}
-    onClick={() => setSeccionesAbiertas(actual => ({ ...actual, [grupo]: !actual[grupo] }))}
-    className={`mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-md px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}
-  >
-    <span>{texto}</span>
-    <span className="ml-auto text-sm" aria-hidden="true">{seccionesAbiertas[grupo] ? '-' : '+'}</span>
-  </button>;
+  const tituloNav = (texto, grupo) => <p className={`mx-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}><span className={`h-1.5 w-1.5 rounded-full ${estilosGrupoNav[grupo].punto}`} aria-hidden="true" />{texto}</p>;
   const ticketsAsignados = currentUser?.isAdmin
     ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
     : [];
-  const ticketsSinAsignar = currentUser?.rol === 'gerente_it'
-    ? tickets.filter(ticket => !ticket.asignado_a_id)
-    : [];
-  const tareasAsignadas = currentUser?.isAdmin
-    ? tareas.filter(tarea => Number(tarea.asignado_a_id) === Number(currentUser.id) && !['completada', 'cancelada'].includes(tarea.estado))
-    : [];
-  const ticketsPorUsuario = lista => {
-    const grupos = new Map();
-    lista.forEach(ticket => {
-      const key = String(ticket.usuario_creador_id || ticket.creador_nombre || ticket.nombre_solicitante || 'sin-solicitante');
-      if (!grupos.has(key)) {
-        grupos.set(key, {
-          key,
-          nombre: ticket.creador_nombre || ticket.nombre_solicitante || 'Solicitante',
-          tickets: []
-        });
-      }
-      grupos.get(key).tickets.push(ticket);
-    });
-    return Array.from(grupos.values()).sort((a, b) => b.tickets.length - a.tickets.length || a.nombre.localeCompare(b.nombre, 'es'));
-  };
   const mensajesPendientes = currentUser?.isAdmin
     ? conversaciones.reduce((total, conversacion) => total + Number(conversacion.pendientes || 0), 0)
     : 0;
@@ -677,40 +478,6 @@ export default function App() {
   const ticketsUsuarioHelpdesk = usuarioHelpdeskActivo
     ? ticketsAsignados.filter(ticket => String(ticket.usuario_creador_id) === usuarioHelpdeskActivo.id)
     : [];
-  const ticketsEsperandoAtencion = ticketsAsignados.filter(ticket => ['nuevo', 'abierto'].includes(ticket.estado));
-  const tareasPendientesUsuario = tareasAsignadas;
-  const ticketsPorVencer = tickets.filter(ticket => ['vencido', 'por_vencer'].includes(ticket.semaforo_alerta));
-  const tareasPorVencer = tareas.filter(tarea => {
-    if (currentUser?.rol !== 'gerente_it' && Number(tarea.asignado_a_id) !== Number(currentUser?.id)) return false;
-    if (['completada', 'cancelada'].includes(tarea.estado) || !tarea.fecha_limite) return false;
-    const diasRestantes = (parseLocalDate(tarea.fecha_limite).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000;
-    return diasRestantes <= 3;
-  });
-  const dashboardSecciones = [
-    { id: 'esperando', titulo: 'Esperando atención', cantidad: ticketsEsperandoAtencion.length, tipo: 'tickets', datos: ticketsEsperandoAtencion },
-    { id: 'asignados', titulo: 'Asignados a mí', cantidad: ticketsAsignados.length, tipo: 'tickets', datos: ticketsAsignados },
-    { id: 'aprobados', titulo: 'Aprobados por Gerencia', cantidad: 0, tipo: 'pendiente' },
-    { id: 'tareas', titulo: 'Mis tareas', cantidad: tareasPendientesUsuario.length, tipo: 'tareas', datos: tareasPendientesUsuario },
-    ...(currentUser?.rol === 'gerente_it' ? [{ id: 'sin_asignar', titulo: 'Sin asignar', cantidad: ticketsSinAsignar.length, tipo: 'tickets', datos: ticketsSinAsignar }] : []),
-    { id: 'colaboraciones', titulo: 'Colaboraciones', cantidad: 0, tipo: 'pendiente' }
-  ];
-  const seccionDashboardActiva = dashboardSecciones.find(seccion => seccion.id === dashboardBandeja) || dashboardSecciones[0];
-  const accionesPendientes = [
-    ...ticketsEsperandoAtencion.map(ticket => ({ tipo: 'ticket', id: ticket.id, titulo: ticket.titulo, detalle: `Ticket #${ticket.id} · ${ticket.creador_nombre || 'Solicitante'}` })),
-    ...tareasPendientesUsuario.map(tarea => ({ tipo: 'tarea', id: tarea.id, titulo: tarea.titulo, detalle: `Tarea · ${tarea.fecha_limite || 'Sin fecha límite'}` })),
-    ...conversaciones.filter(conversacion => Number(conversacion.pendientes) > 0).map(conversacion => ({
-      tipo: 'mensaje',
-      id: conversacion.usuario_id,
-      titulo: `Mensaje nuevo de ${conversacion.usuario_nombre}`,
-      detalle: conversacion.ultimo_mensaje || 'Conversación pendiente de revisar'
-    }))
-  ];
-  const solicitudesRemotasPendientes = solicitudesAsistenciaRemota.filter(solicitud => solicitud.estado === 'pendiente');
-  const solicitudesRemotasEnCurso = solicitudesAsistenciaRemota.filter(solicitud => solicitud.estado === 'atendiendo');
-  const abrirBandejaAsistenciaRemota = () => {
-    setSeccionSoporte('remota');
-    setActiveTab('chat');
-  };
 
   useEffect(() => {
     if (activeTab !== 'dashboard' || !currentUser?.isAdmin || usuarioHelpdeskSeleccionado || !usuariosHelpdesk.length) return;
@@ -732,39 +499,28 @@ export default function App() {
             <h2 className="text-xl font-extrabold text-slate-900">SGTI</h2>
             <p className="text-xs text-blue-700 font-semibold">{currentUser.area}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {currentUser.rol === 'gerente_it' && <button
-              type="button"
-              onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }}
-              className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition ${activeTab === 'apis' ? 'border-blue-700 bg-blue-700 text-white' : 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'}`}
-            >
-              Referencia de API
-            </button>}
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">✕</button>
-          </div>
+          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">✕</button>
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
           {tituloNav('Principal', 'principal')}
-          <div id="nav-section-principal" aria-labelledby="nav-heading-principal" hidden={!seccionesAbiertas.principal}>
-            <button
-              onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
-              className={claseNav('dashboard', 'principal')}
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
-              className={claseNav('chat', 'principal')}
-            >
-              Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
-            </button>
-          </div>
+          <button
+            onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
+            className={claseNav('dashboard', 'principal')}
+          >
+            Dashboard
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
+            className={claseNav('chat', 'principal')}
+          >
+            Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
+          </button>
 
           {tituloNav('Atención de tickets', 'tickets')}
-          <div id="nav-section-tickets" aria-labelledby="nav-heading-tickets" hidden={!seccionesAbiertas.tickets}>
-            {currentUser.isAdmin ? (
-              <>
+          {currentUser.isAdmin ? (
+            <>
               <button
                 onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
                 className={claseNav('crear_ticket', 'tickets')}
@@ -789,62 +545,24 @@ export default function App() {
               >
                 Historial de tickets
               </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
-                  className={claseNav('crear_ticket', 'tickets')}
-                >
-                  Crear ticket
-                </button>
-                <button
-                  onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
-                  className={claseNav('mis_tickets', 'tickets')}
-                >
-                  Mis tickets
-                </button>
-                <button
-                  onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
-                  className={claseNav('encuesta', 'tickets')}
-                >
-                  Encuesta de satisfacción
-                </button>
-              </>
-            )}
-          </div>
-
-          {currentUser.rol === 'gerente_it' && <>
-            {tituloNav('Administración', 'administracion')}
-            <div id="nav-section-administracion" aria-labelledby="nav-heading-administracion" hidden={!seccionesAbiertas.administracion}>
-              <button
+              {tituloNav('Administración', 'administracion')}
+              {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
                 className={claseNav('usuarios', 'administracion')}
               >
                 Gestión de usuarios
-              </button>
-              <button
-                onClick={() => { setActiveTab('usuarios_archivo'); setSidebarOpen(false); }}
-                className={claseNav('usuarios_archivo', 'administracion')}
-              >
-                Archivo de usuarios
-              </button>
-              <button
+              </button>}
+              {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('categorias'); setSidebarOpen(false); }}
                 className={claseNav('categorias', 'administracion')}
               >
                 Gestión de categorías
-              </button>
-              <button
+              </button>}
+              {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
                 className={claseNav('configuracion', 'administracion')}
-              >Configuración</button>
-            </div>
-          </>}
-
-          <>
-            {tituloNav('Planificación', 'planificacion')}
-            <div id="nav-section-planificacion" aria-labelledby="nav-heading-planificacion" hidden={!seccionesAbiertas.planificacion}>
+              >Configuración</button>}
+              {tituloNav('Planificación', 'planificacion')}
               <button 
                 onClick={() => { setActiveTab('calendario'); setSidebarOpen(false); }}
                 className={claseNav('calendario', 'planificacion')}
@@ -857,33 +575,42 @@ export default function App() {
               >
                 Tareas
               </button>
-              {currentUser.isAdmin && <button
+              <button 
                 onClick={() => { setActiveTab('proyectos'); setSidebarOpen(false); }}
                 className={claseNav('proyectos', 'planificacion')}
-              >Proyectos de IT</button>}
-            </div>
-          </>
-
-          {currentUser.rol === 'admin_infra' && <>
-            {tituloNav('Infraestructura', 'infraestructura')}
-            <div id="nav-section-infraestructura" aria-labelledby="nav-heading-infraestructura" hidden={!seccionesAbiertas.infraestructura}>
-              <button
+              >
+                Proyectos de IT
+              </button>
+              {currentUser.rol === 'admin_infra' && tituloNav('Infraestructura', 'infraestructura')}
+              {currentUser.rol === 'admin_infra' && <button
                 onClick={() => { setActiveTab('inventario'); setSidebarOpen(false); }}
                 className={claseNav('inventario', 'infraestructura')}
-              >Inventario por departamento</button>
-              <button
-                onClick={() => { setActiveTab('entregas'); setSidebarOpen(false); }}
-                className={claseNav('entregas', 'infraestructura')}
-              >Entrega de artículos</button>
-            </div>
-          </>}
+              >Inventario por departamento</button>}
+            </>
+          ) : (
+            <>
+              <button 
+                onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
+                className={claseNav('crear_ticket', 'tickets')}
+              >
+                Crear ticket
+              </button>
+              <button 
+                onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
+                className={claseNav('mis_tickets', 'tickets')}
+              >
+                Mis tickets
+              </button>
+              <button 
+                onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
+                className={claseNav('encuesta', 'tickets')}
+              >
+                Encuesta de satisfacción
+              </button>
+            </>
+          )}
 
-          {currentUser.isAdmin && currentUser.rol !== 'gerente_it' && <>
-            {tituloNav('Referencia', 'referencia')}
-            <div id="nav-section-referencia" aria-labelledby="nav-heading-referencia" hidden={!seccionesAbiertas.referencia}>
-              <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={claseNav('apis', 'referencia')}>Referencia de API</button>
-            </div>
-          </>}
+          {currentUser.isAdmin && <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={claseNav('apis', 'administracion')}>Referencia de API</button>}
         </nav>
 
         <div className="p-4 border-t border-slate-100 bg-white">
@@ -951,142 +678,6 @@ export default function App() {
                 </div>
               </div>
               {currentUser.isAdmin ? (
-                <>
-                <section className="space-y-4">
-                  <section className={`overflow-hidden rounded-lg border ${solicitudesRemotasPendientes.length ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="font-bold text-slate-900">Asistencia remota · AnyDesk</h2>
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${solicitudesRemotasPendientes.length ? 'bg-amber-200 text-amber-950' : 'bg-slate-100 text-slate-700'}`}>
-                            {solicitudesRemotasPendientes.length} pendiente{solicitudesRemotasPendientes.length === 1 ? '' : 's'}
-                          </span>
-                          {solicitudesRemotasEnCurso.length > 0 && <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
-                            {solicitudesRemotasEnCurso.length} en atención
-                          </span>}
-                        </div>
-                        <p className="mt-1 text-xs text-slate-600">
-                          {solicitudesRemotasPendientes.length
-                            ? 'Hay solicitudes que esperan a que un administrador las atienda.'
-                            : 'Se actualizará automáticamente cuando llegue una nueva solicitud.'}
-                        </p>
-                      </div>
-                      <button type="button" onClick={abrirBandejaAsistenciaRemota} className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-                        Abrir cola de asistencia
-                      </button>
-                    </div>
-                    {errorAsistenciaRemotaDashboard && <p role="alert" className="border-t border-amber-200 bg-amber-100 px-4 py-2 text-xs text-amber-950">{errorAsistenciaRemotaDashboard}</p>}
-                    {!!solicitudesAsistenciaRemota.length && <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {solicitudesAsistenciaRemota.map(solicitud => {
-                        const pendiente = solicitud.estado === 'pendiente';
-                        return <button
-                          key={solicitud.id}
-                          type="button"
-                          onClick={abrirBandejaAsistenciaRemota}
-                          className={`rounded-lg border-l-4 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${pendiente ? 'border-amber-500 border-y border-r border-y-amber-200 border-r-amber-200 hover:border-y-amber-400 hover:border-r-amber-400' : 'border-blue-500 border-y border-r border-y-blue-200 border-r-blue-200 hover:border-y-blue-400 hover:border-r-blue-400'}`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Solicitante · #{solicitud.id}</span>
-                              <strong className="mt-1 block truncate text-base text-slate-900">{solicitud.solicitante_nombre}</strong>
-                            </div>
-                            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${pendiente ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-900'}`}>
-                              {pendiente ? 'Pendiente' : 'En atención'}
-                            </span>
-                          </div>
-                          <span className="mt-2 block truncate text-xs text-slate-500">{solicitud.solicitante_email}</span>
-                          <span className="mt-3 block rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                            AnyDesk <strong className="text-slate-900">{solicitud.anydesk_id}</strong>
-                          </span>
-                          {solicitud.descripcion
-                            ? <span className="mt-3 block line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-slate-700">{solicitud.descripcion}</span>
-                            : <span className="mt-3 block min-h-[3.75rem] text-sm italic text-slate-400">Sin descripción adicional.</span>}
-                          <span className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
-                            <span>Solicitó: {new Date(solicitud.creada_en).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' })}</span>
-                            {solicitud.atendido_por_nombre && <span>Atiende: {solicitud.atendido_por_nombre}</span>}
-                          </span>
-                          <span className="mt-3 block text-xs font-bold text-blue-700">Ver y atender solicitud →</span>
-                        </button>;
-                      })}
-                    </div>}
-                  </section>
-                  <div className="flex flex-wrap gap-2" aria-label="Bandejas del administrador">
-                    {dashboardSecciones.map(seccion => <button key={seccion.id} type="button" aria-pressed={dashboardBandeja === seccion.id} onClick={() => setDashboardBandeja(seccion.id)} className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${dashboardBandeja === seccion.id ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}>
-                      {seccion.titulo} <span className={`ml-1 rounded-full px-1.5 py-0.5 ${dashboardBandeja === seccion.id ? 'bg-white/20' : 'bg-slate-100'}`}>{seccion.cantidad}</span>
-                    </button>)}
-                  </div>
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
-                    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                      <div className="border-b border-slate-200 px-4 py-3">
-                        <h2 className="font-bold text-slate-900">{seccionDashboardActiva.titulo}</h2>
-                        <p className="mt-1 text-xs text-slate-500">Vista personal de la carga de trabajo y solicitudes pendientes.</p>
-                      </div>
-                      {seccionDashboardActiva.tipo === 'tickets' && <div className="divide-y divide-slate-100">
-                        {seccionDashboardActiva.datos.map(ticket => <button key={ticket.id} onClick={() => abrirDetalleTicket(ticket)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
-                          <span className="min-w-0"><span className="block text-xs text-slate-500">#{ticket.id} · {ticket.creador_nombre || 'Solicitante'} · {ticket.departamento_nombre || 'Sin área'}</span><strong className="block truncate text-sm text-slate-800">{ticket.titulo}</strong></span>
-                          <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{etiquetaEstadoTicket(ticket.estado)}</span>
-                        </button>)}
-                        {!seccionDashboardActiva.datos.length && <p className="px-4 py-8 text-center text-sm text-slate-500">No hay tickets en esta bandeja.</p>}
-                      </div>}
-                      {seccionDashboardActiva.tipo === 'tareas' && <div className="divide-y divide-slate-100">
-                        {seccionDashboardActiva.datos.map(tarea => <button key={tarea.id} onClick={() => setActiveTab('tareas')} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
-                          <span className="min-w-0"><strong className="block truncate text-sm text-slate-800">{tarea.titulo}</strong><span className="text-xs text-slate-500">{tarea.ticket_titulo ? `Ticket: ${tarea.ticket_titulo} · ` : ''}Vence: {tarea.fecha_limite || 'Sin fecha límite'}</span></span>
-                          <span className="shrink-0 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">{tarea.estado}</span>
-                        </button>)}
-                        {!seccionDashboardActiva.datos.length && <p className="px-4 py-8 text-center text-sm text-slate-500">No tiene tareas pendientes.</p>}
-                      </div>}
-                      {seccionDashboardActiva.tipo === 'pendiente' && <p className="px-4 py-8 text-sm leading-6 text-slate-600">
-                        {seccionDashboardActiva.id === 'aprobados'
-                          ? 'El flujo de aprobación por Gerencia aún no está configurado. Esta bandeja queda identificada para cuando se habilite.'
-                          : 'El flujo de colaboraciones entre áreas aún no está configurado. Esta bandeja queda identificada para cuando se habilite.'}
-                      </p>}
-                    </section>
-                    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                      <div className="border-b border-slate-200 px-4 py-3">
-                        <h2 className="font-bold text-slate-900">Acciones pendientes</h2>
-                        <p className="mt-1 text-xs text-slate-500">{accionesPendientes.length} elementos requieren atención.</p>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {accionesPendientes.slice(0, 8).map(accion => <button key={`${accion.tipo}-${accion.id}`} onClick={() => {
-                          if (accion.tipo === 'ticket') setActiveTab('todos_tickets');
-                          else if (accion.tipo === 'mensaje') {
-                            setChatDestinatario(String(accion.id));
-                            setActiveTab('chat');
-                          } else setActiveTab('tareas');
-                        }} className="block w-full px-4 py-3 text-left hover:bg-slate-50">
-                          <strong className="block truncate text-sm text-slate-800">{accion.titulo}</strong><span className="text-xs text-slate-500">{accion.detalle}</span>
-                        </button>)}
-                        {!accionesPendientes.length && <p className="px-4 py-8 text-center text-sm text-slate-500">No tiene acciones pendientes.</p>}
-                      </div>
-                    </section>
-                  </div>
-                </section>
-                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  <div className="border-b border-slate-200 px-5 py-4">
-                    <h2 className="font-bold text-slate-900">Próximos vencimientos</h2>
-                    <p className="mt-1 text-xs text-slate-500">Tickets por vencer o vencidos y tareas con fecha límite en los próximos tres días.</p>
-                  </div>
-                  <div className="grid gap-4 p-4 md:grid-cols-2">
-                    <div>
-                      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Tickets ({ticketsPorVencer.length})</h3>
-                      <div className="divide-y rounded-lg border border-slate-200">
-                        {ticketsPorVencer.slice(0, 8).map(ticket => <button key={ticket.id} onClick={() => abrirDetalleTicket(ticket)} className="block w-full px-3 py-2 text-left hover:bg-slate-50">
-                          <strong className="block truncate text-sm">{ticket.titulo}</strong><span className={`text-xs ${ticket.semaforo_alerta === 'vencido' ? 'font-semibold text-red-700' : 'text-amber-700'}`}>#{ticket.id} · {ticket.semaforo_alerta === 'vencido' ? 'Vencido' : 'Por vencer'}</span>
-                        </button>)}
-                        {!ticketsPorVencer.length && <p className="px-3 py-5 text-center text-xs text-slate-500">Sin tickets próximos a vencer.</p>}
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Tareas ({tareasPorVencer.length})</h3>
-                      <div className="divide-y rounded-lg border border-slate-200">
-                        {tareasPorVencer.slice(0, 8).map(tarea => <button key={tarea.id} onClick={() => setActiveTab('tareas')} className="block w-full px-3 py-2 text-left hover:bg-slate-50">
-                          <strong className="block truncate text-sm">{tarea.titulo}</strong><span className={`text-xs ${esFechaAnteriorAHoy(tarea.fecha_limite) ? 'font-semibold text-red-700' : 'text-amber-700'}`}>{esFechaAnteriorAHoy(tarea.fecha_limite) ? 'Vencida' : 'Vence'}: {tarea.fecha_limite}</span>
-                        </button>)}
-                        {!tareasPorVencer.length && <p className="px-3 py-5 text-center text-xs text-slate-500">Sin tareas próximas a vencer.</p>}
-                      </div>
-                    </div>
-                  </div>
-                </section>
                 <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" aria-label="Bandeja de atención por usuario">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
                     <div>
@@ -1103,7 +694,6 @@ export default function App() {
                         return <button key={usuario.id} onClick={() => {
                           setUsuarioHelpdeskSeleccionado(usuario.id);
                           setChatDestinatario(usuario.id);
-                          setArchivosChat([]);
                         }} className={`w-full border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 ${usuarioHelpdeskSeleccionado === usuario.id ? 'border-l-4 border-l-blue-700 bg-blue-50' : 'border-l-4 border-l-transparent'}`}>
                           <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800">
                             <span className="truncate">{usuario.nombre}</span>
@@ -1117,7 +707,7 @@ export default function App() {
                     </div>
                     <div className="min-w-0 p-4 sm:p-5">
                       {usuarioHelpdeskActivo ? <div className="grid gap-5 lg:grid-cols-2">
-                        <section className="min-w-0 lg:order-2">
+                        <section className="min-w-0">
                           <div className="mb-3 flex items-center justify-between gap-2">
                             <div><h3 className="font-bold text-slate-900">{usuarioHelpdeskActivo.nombre}</h3><p className="text-xs text-slate-500">Conversación con el usuario</p></div>
                             <span className="text-xs text-slate-500">{chatMensajes.length} mensajes</span>
@@ -1126,30 +716,25 @@ export default function App() {
                             {chatMensajes.map(mensaje => <div key={mensaje.id} className={`max-w-[90%] rounded-lg border p-3 text-sm ${Number(mensaje.remitente_id) === Number(currentUser.id) ? 'ml-auto border-blue-100 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                               <div className="mb-1 text-[11px] font-semibold text-slate-500">{mensaje.remitente_nombre || 'Usuario'} · {new Date(mensaje.created_at).toLocaleString()}</div>
                               <p className="whitespace-pre-wrap break-words text-slate-700">{mensaje.mensaje}</p>
-                              <EvidenceGallery images={mensaje.imagenes || []} imagePathPrefix="/api/chat/imagenes/" />
                             </div>)}
                             {!chatMensajes.length && <p className="m-auto text-sm text-slate-500">Inicie la conversación con {usuarioHelpdeskActivo.nombre}.</p>}
                           </div>
                           <form onSubmit={event => {
                             event.preventDefault();
-                            if (!nuevoChat.trim() && !archivosChat.length) return;
-                            apiFetch(API_BASE_URL, '/api/chat/directo', { method: 'POST', body: crearPayloadChat({ usuario_id: Number(usuarioHelpdeskActivo.id), mensaje: nuevoChat.trim() }) })
+                            if (!nuevoChat.trim()) return;
+                            apiFetch(API_BASE_URL, '/api/chat/directo', { method: 'POST', body: JSON.stringify({ usuario_id: Number(usuarioHelpdeskActivo.id), mensaje: nuevoChat.trim() }) })
                               .then(res => res.json()).then(data => {
-                                if (!data.success) throw new Error(data.message || data.error || 'No se pudo enviar el mensaje.');
+                                if (!data.success) throw new Error(data.message || 'No se pudo enviar el mensaje.');
                                 setNuevoChat('');
-                                setArchivosChat([]);
                                 return apiFetch(API_BASE_URL, `/api/chat/directo?usuario_id=${encodeURIComponent(usuarioHelpdeskActivo.id)}`).then(res => res.json());
                               }).then(data => { if (data?.success) setChatMensajes(data.data); }).catch(error => setChatError(error.message));
-                          }} className="mt-2 space-y-2">
-                            <div className="flex gap-2">
-                              <input aria-label="Mensaje para el usuario" value={nuevoChat} onChange={event => setNuevoChat(event.target.value)} placeholder="Escriba una respuesta..." className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-                              <button disabled={!nuevoChat.trim() && !archivosChat.length} className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-300">Enviar</button>
-                            </div>
-                            <EvidencePicker files={archivosChat} onChange={setArchivosChat} />
+                          }} className="mt-2 flex gap-2">
+                            <input aria-label="Mensaje para el usuario" value={nuevoChat} onChange={event => setNuevoChat(event.target.value)} placeholder="Escriba una respuesta..." className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                            <button disabled={!nuevoChat.trim()} className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-300">Enviar</button>
                           </form>
                           {chatError && <p role="alert" className="mt-2 text-xs text-red-700">{chatError}</p>}
                         </section>
-                        <section className="min-w-0 lg:order-1">
+                        <section className="min-w-0">
                           <div className="mb-3 flex items-center justify-between gap-2">
                             <div><h3 className="font-bold text-slate-900">Tickets del usuario</h3><p className="text-xs text-slate-500">Solicitudes asignadas a su cuenta</p></div>
                             <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">{ticketsUsuarioHelpdesk.length} activos</span>
@@ -1166,7 +751,6 @@ export default function App() {
                     </div>
                   </div>
                 </section>
-                </>
               ) : (
                 <section>
                   <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1204,6 +788,26 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  </section>
+                </details>
+              )}
+              {currentUser.isAdmin && (
+                <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" aria-label="Avisos para este administrador">
+                  <summary className="cursor-pointer px-5 py-4 font-bold text-slate-900">Avisos y actividad asignada <span className="ml-2 text-xs font-normal text-slate-500">{ticketsAsignados.length + mensajesPendientes} pendientes</span></summary>
+                  <section className="space-y-3 border-t border-slate-200 p-5">
+                  {ticketsAsignados.map(ticket => (
+                    <button key={`ticket-${ticket.id}`} onClick={() => setActiveTab('todos_tickets')} className="block w-full text-left border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm">
+                      <strong>Ticket asignado:</strong> {ticket.titulo}
+                      <span className="block text-xs text-slate-600">De {ticket.creador_nombre || 'solicitante'} · {ticket.departamento_nombre}</span>
+                    </button>
+                  ))}
+                  {conversaciones.filter(conversacion => Number(conversacion.pendientes) > 0).map(conversacion => (
+                    <button key={`mensaje-${conversacion.usuario_id}`} onClick={() => { setChatDestinatario(String(conversacion.usuario_id)); setActiveTab('chat'); }} className="block w-full text-left border-l-4 border-red-500 bg-red-50 px-3 py-2 text-sm">
+                      <strong>Mensaje nuevo de {conversacion.usuario_nombre}</strong>
+                      <span className="block text-xs text-slate-600">{conversacion.ultimo_mensaje}</span>
+                    </button>
+                  ))}
+                  {!ticketsAsignados.length && !mensajesPendientes && <p className="text-sm text-slate-500">No tiene tickets asignados ni mensajes nuevos.</p>}
                   </section>
                 </details>
               )}
@@ -1277,7 +881,6 @@ export default function App() {
                   ></textarea>
                 </div>
 
-                <EvidencePicker files={archivosTicket} onChange={setArchivosTicket} />
                 <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-2.5 rounded-lg text-sm shadow">
                   Enviar Ticket Oficial
                 </button>
@@ -1310,33 +913,22 @@ export default function App() {
           {/* TICKETS DE TODOS CON SEMÁFORO (ADMIN) */}
           {activeTab === 'todos_tickets' && currentUser.isAdmin && (
             <div className="space-y-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Tickets de todos</h2>
-                <p className="mt-1 text-sm text-slate-500">Agrupados por solicitante para consultar rápidamente su carga de tickets activos.</p>
-              </div>
-              <div className="space-y-3">
-                {ticketsPorUsuario(filtrarTickets(tickets)).map(grupo => <details key={grupo.key} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50">
-                    <span><strong className="text-sm text-slate-900">{grupo.nombre}</strong><span className="ml-2 text-xs text-slate-500">Solicitante</span></span>
-                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">{grupo.tickets.length} {grupo.tickets.length === 1 ? 'ticket activo' : 'tickets activos'}</span>
-                  </summary>
-                  <div className="divide-y border-t border-slate-200">
-                    {grupo.tickets.map(ticket => <article key={ticket.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                      <button onClick={() => abrirDetalleTicket(ticket)} className="min-w-0 text-left">
-                        <span className="block text-xs text-slate-500">#{ticket.id} · {etiquetaTipoTicket(ticket.tipo_solicitud)}</span>
-                        <strong className="block truncate text-sm text-slate-900">{ticket.titulo}</strong>
-                        <span className="mt-1 block text-xs text-slate-500">{ticket.departamento_nombre || 'Sin área'} · {ticket.semaforo_alerta === 'vencido' ? 'Vencido' : ticket.fecha_limite ? parseLocalDate(ticket.fecha_limite).toLocaleDateString() : 'Sin fecha límite'}</span>
-                      </button>
-                      <div className="flex items-center gap-3">
-                        <select aria-label={`Estado del ticket ${ticket.id}`} value={ticket.estado} onChange={event => moverTicketAdmin(ticket, event.target.value, currentUser.rol === 'gerente_it' ? ticket.departamento_destino_id : null)} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-xs">
-                          <option value="nuevo">Nuevo</option><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option>
-                        </select>
-                        <button onClick={() => abrirDetalleTicket(ticket)} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">Ver detalle</button>
-                      </div>
-                    </article>)}
-                  </div>
-                </details>)}
-                {!filtrarTickets(tickets).length && <p className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">No hay tickets que coincidan con la búsqueda.</p>}
+              <h2 className="text-xl font-bold text-slate-900">Tickets de todos</h2>
+              <div className="overflow-x-auto bg-white border border-slate-200 rounded">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Ticket</th><th className="px-4 py-3">Solicitante</th><th className="px-4 py-3">Área</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Plazo</th><th className="px-4 py-3"></th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtrarTickets(tickets).map(ticket => <tr key={ticket.id}>
+                      <td className="px-4 py-3"><span className="block text-xs text-slate-500">#{ticket.id} · {ticket.tipo_solicitud}</span><strong className="text-slate-900">{ticket.titulo}</strong></td>
+                      <td className="px-4 py-3 text-slate-700">{ticket.creador_nombre || 'Solicitante'}</td>
+                      <td className="px-4 py-3 text-slate-600">{ticket.departamento_nombre || 'Sin área'}</td>
+                      <td className="px-4 py-3"><select aria-label={`Estado del ticket ${ticket.id}`} value={ticket.estado} onChange={event => moverTicketAdmin(ticket, event.target.value, currentUser.rol === 'gerente_it' ? ticket.departamento_destino_id : null)} className="px-2 py-1 border border-slate-300 rounded bg-white text-xs"><option value="nuevo">Nuevo</option><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option></select></td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{ticket.semaforo_alerta === 'vencido' ? 'Vencido' : ticket.fecha_limite ? parseLocalDate(ticket.fecha_limite).toLocaleDateString() : 'Sin fecha'}</td>
+                      <td className="px-4 py-3"><button onClick={() => abrirDetalleTicket(ticket)} className="font-semibold text-blue-700 hover:underline">Ver detalle</button></td>
+                    </tr>)}
+                    {!filtrarTickets(tickets).length && <tr><td colSpan="6" className="px-4 py-8 text-center text-slate-500">No hay tickets que coincidan con la búsqueda.</td></tr>}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -1369,25 +961,21 @@ export default function App() {
           {activeTab === 'historial' && currentUser.isAdmin && (
             <div className="space-y-4">
               <h2 className="text-xl font-bold text-slate-900">Historial de Tickets Resueltos</h2>
-              <p className="text-sm text-slate-500">Los tickets resueltos se agrupan por solicitante para localizar antes los antecedentes de cada usuario.</p>
-              <div className="space-y-3">
-                {ticketsPorUsuario(filtrarTickets(historial)).map(grupo => <details key={grupo.key} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50">
-                    <span className="font-semibold text-slate-900">{grupo.nombre}</span>
-                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{grupo.tickets.length} {grupo.tickets.length === 1 ? 'ticket resuelto' : 'tickets resueltos'}</span>
-                  </summary>
-                  <div className="divide-y border-t border-slate-200">
-                    {grupo.tickets.map(ticket => <article key={ticket.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                      <div className="min-w-0">
-                        <span className="block text-xs text-slate-500">#{ticket.id} · {ticket.departamento_destino_nombre || 'Sin área'} · {formatLocalDateTime(ticket.fecha_resolucion)}</span>
-                        <strong className="block truncate text-sm text-slate-900">{ticket.titulo}</strong>
-                        {ticket.detalles_resolucion && <p className="mt-1 max-w-3xl truncate text-xs text-slate-600">{String(ticket.detalles_resolucion).replace(/^Resolución: /, '')}</p>}
-                      </div>
-                      <button onClick={() => abrirDetalleTicket(ticket)} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">Ver ticket</button>
-                    </article>)}
-                  </div>
-                </details>)}
-                {!filtrarTickets(historial).length && <p className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">El historial está vacío o no coincide con la búsqueda.</p>}
+              <p className="text-xs text-slate-500">Los tickets resueltos se almacenan aquí para auditoría y evitar saturar el panel general de activos.</p>
+              <div className="overflow-x-auto bg-white border border-slate-200 rounded">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Ticket</th><th className="px-4 py-3">Solicitante</th><th className="px-4 py-3">Área</th><th className="px-4 py-3">Resolución</th><th className="px-4 py-3"></th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtrarTickets(historial).map(ticket => <tr key={ticket.id}>
+                      <td className="px-4 py-3"><span className="block text-xs text-slate-500">#{ticket.id}</span><strong>{ticket.titulo}</strong></td>
+                      <td className="px-4 py-3">{ticket.creador_nombre || ticket.nombre_solicitante}</td>
+                      <td className="px-4 py-3">{ticket.departamento_destino_nombre || 'Sin área'}</td>
+                      <td className="max-w-xs truncate px-4 py-3 text-slate-600">{String(ticket.detalles_resolucion || '').replace(/^Resolución: /, '')}</td>
+                      <td className="px-4 py-3"><button onClick={() => abrirDetalleTicket(ticket)} className="font-semibold text-blue-700 hover:underline">Ver detalle</button></td>
+                    </tr>)}
+                    {!filtrarTickets(historial).length && <tr><td colSpan="5" className="px-4 py-8 text-center text-slate-500">El historial está vacío o no coincide con la búsqueda.</td></tr>}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -1410,12 +998,7 @@ export default function App() {
                 {!formUsuario.id && <input aria-label="Contraseña" type="password" minLength="8" placeholder="Contraseña inicial (8 caracteres mínimo)" required value={formUsuario.password} onChange={e => setFormUsuario({ ...formUsuario, password: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />}
                 <label className="block space-y-1 text-xs font-semibold text-slate-600">
                   <span>Rol de la cuenta</span>
-                  <select aria-label="Rol del usuario" value={formUsuario.rol} onChange={e => {
-                    const rol = e.target.value;
-                    const areaEsperada = departamentoPorRol[rol];
-                    const departamento = areaEsperada && departamentos.find(item => normalizarNombre(item.nombre) === normalizarNombre(areaEsperada));
-                    setFormUsuario({ ...formUsuario, rol, departamento_id: departamento?.id || null });
-                  }} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
+                  <select aria-label="Rol del usuario" value={formUsuario.rol} onChange={e => setFormUsuario({ ...formUsuario, rol: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm bg-white font-normal text-slate-800">
                     <option value="usuario_final">Usuario normal</option>
                     <option value="admin_infra">Administrador de Infraestructura</option>
                     <option value="admin_desarrollo">Administrador de Desarrollo</option>
@@ -1429,7 +1012,6 @@ export default function App() {
                     <option value="">{formUsuario.rol === 'usuario_final' ? 'Sin área' : 'Seleccione un área'}</option>
                     {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
                   </select>
-                  {departamentoPorRol[formUsuario.rol] && !departamentos.find(item => normalizarNombre(item.nombre) === normalizarNombre(departamentoPorRol[formUsuario.rol])) && <span role="alert" className="block text-xs font-normal text-amber-700">No se encontró el área correspondiente al rol en el catálogo.</span>}
                 </label>
                 {formUsuario.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={formUsuario.activo} onChange={e => setFormUsuario({ ...formUsuario, activo: e.target.checked })} /> Cuenta activa</label>}
                 <div className="flex gap-2">
@@ -1442,18 +1024,11 @@ export default function App() {
                   <div><strong>{usuario.nombre}</strong><div className="text-xs text-slate-500">{usuario.email} · {usuario.departamento_nombre || 'Sin área'} · {usuario.rol}{usuario.activo ? '' : ' · Inactivo'}</div></div>
                   <div className="flex gap-2">
                     <button onClick={() => setFormUsuario({ id: usuario.id, nombre: usuario.nombre, email: usuario.email, password: '', rol: usuario.rol, departamento_id: usuario.departamento_id, activo: usuario.activo })} className="border px-3 py-1.5 rounded text-xs">Editar</button>
-                    {usuario.activo && <button onClick={() => confirmarAccion(`¿Desactivar la cuenta de ${usuario.nombre}?`, () => {
-                      apiFetch(API_BASE_URL, `/api/admin/usuarios/${usuario.id}/desactivar`, { method: 'PATCH' }).then(res => res.json()).then(data => {
-                        if (!data.success) throw new Error(data.message || 'No se pudo desactivar el usuario.');
-                        cargarDatosAdministrativos();
-                        mostrarAviso('Usuario desactivado.');
-                      }).catch(error => mostrarAviso(error.message, 'error'));
-                    })} className="border border-amber-200 text-amber-800 px-3 py-1.5 rounded text-xs">Desactivar</button>}
-                    <button onClick={() => confirmarAccion(`¿Eliminar permanentemente a ${usuario.nombre}? Su perfil e historial relacionado se archivarán en Archivo de usuarios; las contraseñas no se conservan.`, () => {
+                    <button onClick={() => confirmarAccion(`¿Eliminar a ${usuario.nombre}?`, () => {
                       apiFetch(API_BASE_URL, `/api/admin/usuarios/${usuario.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
                         if (!data.success) throw new Error(data.message || 'No se pudo eliminar el usuario.');
                         cargarDatosAdministrativos();
-                        mostrarAviso('Usuario eliminado. Su perfil e historial están disponibles en Archivo de usuarios.');
+                        mostrarAviso('Usuario eliminado.');
                       }).catch(error => mostrarAviso(error.message, 'error'));
                     })} className="border border-red-200 text-red-700 px-3 py-1.5 rounded text-xs">Eliminar</button>
                   </div>
@@ -1462,13 +1037,11 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'usuarios_archivo' && currentUser.rol === 'gerente_it' && <ArchivedUsers />}
-
           {/* CALENDARIO INTERACTIVO */}
-          {activeTab === 'calendario' && (
+          {activeTab === 'calendario' && currentUser.isAdmin && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-900">{currentUser.isAdmin ? 'Calendario IT' : 'Mi calendario'}</h2>
+                <h2 className="text-xl font-bold text-slate-900">Calendario IT</h2>
                 <div className="flex items-center gap-3">
                   <button aria-label="Mes anterior" onClick={() => setMesCalendario(new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() - 1, 1))} className="border rounded px-3 py-1">‹</button>
                   <strong className="min-w-36 text-center">{mesCalendario.toLocaleDateString('es', { month: 'long', year: 'numeric' })}</strong>
@@ -1498,36 +1071,31 @@ export default function App() {
           )}
 
           {/* TAREAS PENDIENTES */}
-          {activeTab === 'tareas' && (
+          {activeTab === 'tareas' && currentUser.isAdmin && (
             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
-              <h2 className="text-xl font-bold text-slate-900">{currentUser.isAdmin ? 'Organización de Tareas Internas' : 'Mis tareas'}</h2>
+              <h2 className="text-xl font-bold text-slate-900">Organización de Tareas Internas</h2>
               <form onSubmit={event => {
                 event.preventDefault();
                 apiFetch(API_BASE_URL, '/api/admin/tareas', { method: 'POST', body: JSON.stringify(formTarea) }).then(res => res.json()).then(data => {
                   if (!data.success) throw new Error(data.message || 'No se pudo guardar la tarea.');
                   setFormTarea({ id: null, titulo: '', descripcion: '', asignado_a_id: currentUser.id, fecha_limite: '', estado: 'pendiente' });
-                  if (currentUser.isAdmin) cargarDatosAdministrativos();
-                  else cargarDatosPlanificacion();
+                  cargarDatosAdministrativos();
                 }).catch(error => mostrarAviso(error.message, 'error'));
               }} className="grid sm:grid-cols-2 gap-3 border-b pb-5">
                 <input placeholder="Título de tarea" required value={formTarea.titulo} onChange={e => setFormTarea({ ...formTarea, titulo: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input type="date" required value={formTarea.fecha_limite} onChange={e => setFormTarea({ ...formTarea, fecha_limite: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
                 <input placeholder="Descripción" value={formTarea.descripcion} onChange={e => setFormTarea({ ...formTarea, descripcion: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
-                {currentUser.isAdmin && <label className="text-xs font-semibold text-slate-600">Responsable
+                <label className="text-xs font-semibold text-slate-600">Responsable
                   <select required value={formTarea.asignado_a_id || currentUser.id} onChange={e => setFormTarea({ ...formTarea, asignado_a_id: Number(e.target.value) })} className="mt-1 w-full px-3 py-2 border rounded-lg bg-white text-sm font-normal text-slate-800">
                     {currentUser.rol !== 'gerente_it' && <option value={currentUser.id}>{currentUser.nombre}</option>}
                     {usuarios.filter(usuario => usuario.activo && ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'].includes(usuario.rol)).map(usuario => <option key={usuario.id} value={usuario.id}>{usuario.nombre}</option>)}
                   </select>
-                </label>}
+                </label>
                 <button className="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">{formTarea.id ? 'Guardar cambios' : 'Agregar tarea'}</button>
               </form>
               <div className="divide-y">{tareas.map(tarea => <div key={tarea.id} className="py-3 flex justify-between gap-3 text-sm">
-                <div><strong>{tarea.titulo}</strong><div className="text-xs text-slate-500">{tarea.descripcion}{currentUser.isAdmin ? ` · ${tarea.asignado_nombre}` : ''} · {parseLocalDate(tarea.fecha_limite).toLocaleDateString()}</div></div>
-                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', asignado_a_id: tarea.asignado_a_id, fecha_limite: String(tarea.fecha_limite).slice(0, 10), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
-                  if (!data.success) throw new Error(data.message || 'No se pudo eliminar la tarea.');
-                  if (currentUser.isAdmin) cargarDatosAdministrativos();
-                  else cargarDatosPlanificacion();
-                }).catch(error => mostrarAviso(error.message, 'error'))} className="text-red-700 text-xs">Eliminar</button></div>
+                <div><strong>{tarea.titulo}</strong><div className="text-xs text-slate-500">{tarea.descripcion} · {tarea.asignado_nombre} · {parseLocalDate(tarea.fecha_limite).toLocaleDateString()}</div></div>
+                <div className="flex gap-3"><button onClick={() => setFormTarea({ id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion || '', asignado_a_id: tarea.asignado_a_id, fecha_limite: String(tarea.fecha_limite).slice(0, 10), estado: tarea.estado })} className="text-blue-700 text-xs">Editar</button><button onClick={() => apiFetch(API_BASE_URL, `/api/admin/tareas/${tarea.id}`, { method: 'DELETE' }).then(res => res.json()).then(() => cargarDatosAdministrativos())} className="text-red-700 text-xs">Eliminar</button></div>
               </div>)}</div>
             </div>
           )}
@@ -1679,166 +1247,55 @@ export default function App() {
             </section>
           )}
 
-          {activeTab === 'entregas' && currentUser.rol === 'admin_infra' && (
-            <section className="space-y-6">
-              <div>
-                <p className="text-xs font-bold uppercase text-teal-700">Infraestructura</p>
-                <h2 className="mt-1 text-xl font-bold text-slate-900">Entrega de artículos</h2>
-              </div>
-              <form onSubmit={guardarListaEntrega} className="space-y-5 rounded-lg border border-slate-200 bg-white p-4">
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <label className="text-xs font-semibold text-slate-600">Departamento
-                    <select required value={formEntrega.departamento_id} onChange={event => setFormEntrega({ ...formEntrega, departamento_id: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800">
-                      <option value="">Seleccione departamento</option>
-                      {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
-                    </select>
-                  </label>
-                  <label className="text-xs font-semibold text-slate-600">Persona que recibe
-                    <input required maxLength="160" value={formEntrega.destinatario} onChange={event => setFormEntrega({ ...formEntrega, destinatario: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
-                  </label>
-                  <label className="text-xs font-semibold text-slate-600">Fecha de entrega
-                    <input type="date" required value={formEntrega.fecha_entrega} onChange={event => setFormEntrega({ ...formEntrega, fecha_entrega: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
-                  </label>
-                  <label className="text-xs font-semibold text-slate-600 sm:col-span-2 lg:col-span-1">Observaciones
-                    <input maxLength="3000" value={formEntrega.observaciones} onChange={event => setFormEntrega({ ...formEntrega, observaciones: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
-                  </label>
-                </div>
-
-                <fieldset className="space-y-3 border-t border-slate-200 pt-4">
-                  <legend className="px-1 text-sm font-bold text-slate-800">Artículos</legend>
-                  {formEntrega.articulos.map((item, index) => <div key={index} className="grid items-end gap-3 border-b border-slate-100 pb-3 sm:grid-cols-[minmax(0,2fr)_100px_minmax(0,2fr)_auto]">
-                    <label className="text-xs font-semibold text-slate-600">Artículo o modelo
-                      <input required maxLength="160" value={item.articulo} onChange={event => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.map((articulo, articuloIndex) => articuloIndex === index ? { ...articulo, articulo: event.target.value } : articulo) }))} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
-                    </label>
-                    <label className="text-xs font-semibold text-slate-600">Cantidad
-                      <input type="number" min="1" step="1" required value={item.cantidad} onChange={event => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.map((articulo, articuloIndex) => articuloIndex === index ? { ...articulo, cantidad: event.target.value } : articulo) }))} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
-                    </label>
-                    <label className="text-xs font-semibold text-slate-600">Detalles
-                      <input maxLength="1000" value={item.detalles} onChange={event => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.map((articulo, articuloIndex) => articuloIndex === index ? { ...articulo, detalles: event.target.value } : articulo) }))} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800" />
-                    </label>
-                    <button type="button" disabled={formEntrega.articulos.length === 1} onClick={() => setFormEntrega(actual => ({ ...actual, articulos: actual.articulos.filter((_, articuloIndex) => articuloIndex !== index) }))} className="rounded-md px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">Quitar</button>
-                  </div>)}
-                  <button type="button" onClick={() => setFormEntrega(actual => ({ ...actual, articulos: [...actual.articulos, { articulo: '', cantidad: 1, detalles: '' }] }))} className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Agregar artículo</button>
-                </fieldset>
-                <button type="submit" disabled={guardandoEntrega} className="rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60">
-                  {guardandoEntrega ? 'Guardando...' : 'Guardar entrega'}
-                </button>
-              </form>
-
-              <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-bold text-slate-900">Entregas registradas</h3>
-                  <span className="text-sm text-slate-500">{entregas.length} registros</span>
-                </div>
-                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                  <table className="w-full min-w-[760px] text-left text-sm">
-                    <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Recibe</th><th className="px-4 py-3">Departamento</th><th className="px-4 py-3">Artículos</th><th className="px-4 py-3">Reporte</th></tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {entregas.map(entrega => <tr key={entrega.id}>
-                        <td className="whitespace-nowrap px-4 py-3">{entrega.fecha_entrega}</td>
-                        <td className="px-4 py-3 font-medium">{entrega.destinatario}</td>
-                        <td className="px-4 py-3">{entrega.departamento_nombre}</td>
-                        <td className="px-4 py-3">{entrega.articulos.length}</td>
-                        <td className="px-4 py-3"><div className="flex gap-3">
-                          <button type="button" onClick={() => descargarReporteEntrega(entrega)} className="font-semibold text-teal-800 hover:underline">Descargar</button>
-                          <button type="button" onClick={() => imprimirReporteEntrega(entrega)} className="font-semibold text-slate-700 hover:underline">Imprimir</button>
-                        </div></td>
-                      </tr>)}
-                      {!entregas.length && <tr><td colSpan="5" className="px-4 py-10 text-center text-slate-500">Todavía no hay entregas registradas.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </section>
-          )}
-
           {/* CHAT INMEDIATO */}
           {activeTab === 'chat' && (
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white px-5 py-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Centro de soporte</p>
-                <h2 className="mt-1 text-xl font-bold text-slate-900">{seccionSoporte === 'remota' ? 'Asistencia remota' : 'Mensajes con IT'}</h2>
-                <p className="mt-1 text-sm text-slate-600">{currentUser.isAdmin ? 'Revise las conversaciones de usuarios y responda desde una sola bandeja.' : 'Elija el equipo de soporte para consultar o enviar un mensaje.'}</p>
-              </div>
-              <div className="flex gap-2 border-b border-slate-200 px-4 py-3 sm:px-5" role="group" aria-label="Opciones del centro de soporte">
-                <button type="button" aria-pressed={seccionSoporte === 'mensajes'} onClick={() => setSeccionSoporte('mensajes')} className={`rounded-lg px-3 py-2 text-sm font-semibold ${seccionSoporte === 'mensajes' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  Mensajes
-                </button>
-                <button type="button" aria-pressed={seccionSoporte === 'remota'} onClick={() => setSeccionSoporte('remota')} className={`rounded-lg px-3 py-2 text-sm font-semibold ${seccionSoporte === 'remota' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  Asistencia remota
-                </button>
-              </div>
-              {seccionSoporte === 'remota'
-                ? <RemoteAssistance currentUser={currentUser} />
-                : <>
+            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+              <h2 className="text-xl font-bold text-slate-900">Comunicación Inmediata con IT</h2>
               {chatError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">{chatError}</p>}
-              <div className="grid min-h-[420px] lg:grid-cols-[280px_minmax(0,1fr)]">
-                <aside className="border-b border-slate-200 bg-slate-50 lg:border-b-0 lg:border-r">
-                  <h3 className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">{currentUser.isAdmin ? 'Conversaciones' : 'Personal de soporte'}</h3>
-                  <div className="max-h-[520px] overflow-y-auto">
-                    {(currentUser.isAdmin ? conversaciones : adminsChat).map(contacto => {
-                      const id = String(currentUser.isAdmin ? contacto.usuario_id : contacto.id);
-                      const nombre = currentUser.isAdmin ? contacto.usuario_nombre : contacto.nombre;
-                      const pendientes = Number(contacto.pendientes || 0);
-                      return <button key={id} type="button" onClick={() => {
-                        setChatDestinatario(id);
-                        setChatError('');
-                        setArchivosChat([]);
-                      }} aria-pressed={chatDestinatario === id} className={`block w-full border-b border-slate-200 px-4 py-3 text-left transition ${chatDestinatario === id ? 'border-l-4 border-l-blue-700 bg-blue-50' : 'border-l-4 border-l-transparent hover:bg-white'}`}>
-                        <span className="flex items-center justify-between gap-2"><strong className="truncate text-sm text-slate-900">{nombre}</strong>{pendientes > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-bold text-white">{pendientes}</span>}</span>
-                        <span className="mt-1 block truncate text-xs text-slate-500">{currentUser.isAdmin ? contacto.ultimo_mensaje || 'Iniciar conversación' : `${contacto.area || contacto.rol} · Equipo IT`}</span>
-                      </button>;
-                    })}
-                    {!(currentUser.isAdmin ? conversaciones : adminsChat).length && <p className="px-4 py-8 text-center text-xs text-slate-500">{currentUser.isAdmin ? 'No hay conversaciones todavía.' : 'No hay administradores disponibles.'}</p>}
+              <div className="flex gap-2 mb-2">
+                <select 
+                  value={chatDestinatario}
+                  onChange={e => setChatDestinatario(e.target.value)}
+                  className="px-3 py-2 border rounded-lg text-xs bg-white font-bold"
+                >
+                  <option value="">{currentUser.isAdmin ? 'Bandeja de conversaciones' : 'Seleccione administrador'}</option>
+                  {currentUser.isAdmin
+                    ? conversaciones.map(conversacion => <option key={conversacion.usuario_id} value={conversacion.usuario_id}>{conversacion.usuario_nombre}{conversacion.pendientes ? ` (${conversacion.pendientes} pendientes)` : ''}</option>)
+                    : adminsChat.map(admin => <option key={admin.id} value={admin.id}>{admin.area || admin.rol} · {admin.nombre}</option>)}
+                </select>
+              </div>
+              <div className="h-48 border rounded-xl p-4 bg-slate-50 overflow-y-auto space-y-2 text-sm">
+                {chatMensajes.map(m => (
+                  <div key={m.id} className={`p-3 border rounded-lg shadow-sm ${Number(m.remitente_id) === Number(currentUser.id) ? 'bg-blue-50 border-blue-100 ml-8' : 'bg-white mr-8'}`}>
+                    <div className="text-xs text-blue-700 font-bold">{m.remitente_nombre || (Number(m.remitente_id) === Number(currentUser.id) ? 'Usted' : 'Soporte')} · {new Date(m.created_at).toLocaleString()}</div>
+                    <p className="text-slate-700 text-sm mt-1">{m.mensaje}</p>
                   </div>
-                </aside>
-                <section className="flex min-w-0 flex-col p-4 sm:p-5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="font-bold text-slate-900">
-                        {currentUser.isAdmin
-                          ? conversaciones.find(item => String(item.usuario_id) === chatDestinatario)?.usuario_nombre || 'Seleccione una conversación'
-                          : adminsChat.find(item => String(item.id) === chatDestinatario)?.nombre || 'Seleccione soporte'}
-                      </h3>
-                      <p className="text-xs text-slate-500">{chatDestinatario ? `${chatMensajes.length} mensajes · conversación directa` : 'Seleccione una persona de la lista para ver sus mensajes.'}</p>
-                    </div>
-                    {chatDestinatario && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">Directo</span>}
-                  </div>
-                  <div className="flex min-h-64 flex-1 flex-col gap-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-4" aria-live="polite">
-                    {chatMensajes.map(m => {
-                      const enviadoPorMi = Number(m.remitente_id) === Number(currentUser.id);
-                      return <article key={m.id} className={`max-w-[88%] rounded-2xl border px-4 py-3 shadow-sm ${enviadoPorMi ? 'ml-auto border-blue-200 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-800'}`}>
-                        <p className={`mb-1 text-[11px] font-semibold ${enviadoPorMi ? 'text-blue-100' : 'text-slate-500'}`}>{enviadoPorMi ? 'Usted' : m.remitente_nombre || (currentUser.isAdmin ? 'Usuario' : 'Soporte')} · {new Date(m.created_at).toLocaleString()}</p>
-                        <p className="whitespace-pre-wrap break-words text-sm">{m.mensaje}</p>
-                        <EvidenceGallery images={m.imagenes || []} imagePathPrefix="/api/chat/imagenes/" />
-                      </article>;
-                    })}
-                    {!chatMensajes.length && chatDestinatario && <p className="m-auto text-center text-sm text-slate-500">Todavía no hay mensajes. Envíe el primero para iniciar la conversación.</p>}
-                    {!chatDestinatario && <p className="m-auto text-center text-sm text-slate-500">Sus mensajes aparecerán aquí al seleccionar una conversación.</p>}
-                  </div>
-                  <form onSubmit={event => {
+                ))}
+                {currentUser.isAdmin && !chatDestinatario && conversaciones.length > 0 && <p className="text-xs text-slate-500">Seleccione una conversación para responder.</p>}
+                {!chatMensajes.length && (!currentUser.isAdmin || chatDestinatario) && !chatError && <p className="text-sm text-slate-500">Sin mensajes todavía.</p>}
+              </div>
+              <form onSubmit={event => {
                 event.preventDefault();
                 const recipient = Number(chatDestinatario);
-                if (!recipient || (!nuevoChat.trim() && !archivosChat.length)) return;
+                if (!recipient || !nuevoChat.trim()) return;
                 const payload = currentUser.isAdmin ? { usuario_id: recipient, mensaje: nuevoChat } : { admin_id: recipient, mensaje: nuevoChat };
-                apiFetch(API_BASE_URL, '/api/chat/directo', { method: 'POST', body: crearPayloadChat(payload) }).then(res => res.json()).then(data => {
+                apiFetch(API_BASE_URL, '/api/chat/directo', { method: 'POST', body: JSON.stringify(payload) }).then(res => res.json()).then(data => {
                   if (!data.success) throw new Error(data.message || 'No se pudo enviar el mensaje.');
                   setNuevoChat('');
-                  setArchivosChat([]);
                   if (currentUser.isAdmin) apiFetch(API_BASE_URL, `/api/chat/directo?usuario_id=${recipient}`).then(res => res.json()).then(result => { if (result.success) setChatMensajes(result.data); });
                   else apiFetch(API_BASE_URL, `/api/chat/directo?admin_id=${recipient}`).then(res => res.json()).then(result => { if (result.success) setChatMensajes(result.data); });
                 }).catch(error => setChatError(error.message));
-              }} className="mt-3 space-y-2">
-                    <div className="flex gap-2">
-                    <input type="text" aria-label="Escriba un mensaje" placeholder={currentUser.isAdmin ? 'Responder al usuario...' : 'Escriba su mensaje a IT...'} value={nuevoChat} onChange={e => setNuevoChat(e.target.value)} disabled={!chatDestinatario} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100" />
-                    <button disabled={!chatDestinatario || (!nuevoChat.trim() && !archivosChat.length)} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300">Enviar</button>
-                    </div>
-                    <EvidencePicker files={archivosChat} onChange={setArchivosChat} disabled={!chatDestinatario} />
-                  </form>
-                </section>
-              </div>
-                </>}
-            </section>
+              }} className="flex gap-2">
+                <input 
+                  type="text"
+                  placeholder={currentUser.isAdmin ? 'Responder al usuario...' : 'Escriba su mensaje a IT...'}
+                  value={nuevoChat}
+                  onChange={e => setNuevoChat(e.target.value)}
+                  className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                />
+                <button disabled={!chatDestinatario || !nuevoChat.trim()} className="bg-blue-700 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg text-sm font-semibold">Enviar</button>
+              </form>
+            </div>
           )}
 
           {/* ENCUESTA DE SATISFACCIÓN */}
@@ -1930,11 +1387,6 @@ export default function App() {
                 </div>}
               </section>
 
-              {imagenesTicket.length > 0 && <section className="space-y-2 border-t pt-4">
-                <h3 className="font-semibold text-slate-900">Evidencia del ticket</h3>
-                <EvidenceGallery images={imagenesTicket} imagePathPrefix="/api/chat/imagenes/" />
-              </section>}
-
               {(ticketSeleccionado.actualizaciones?.length > 0 || ticketSeleccionado.actualizacion_publica || ticketSeleccionado.detalles_resolucion) && <section className="space-y-2 border-t pt-4">
                 <h3 className="font-semibold text-slate-900">Historial de atención</h3>
                 {ticketSeleccionado.actualizaciones?.length ? <ol className="space-y-2">{ticketSeleccionado.actualizaciones.map((actualizacion, index) => <li key={`${ticketSeleccionado.id}-${index}`} className="border-l-2 border-blue-300 bg-slate-50 px-3 py-2 text-sm">
@@ -1965,16 +1417,12 @@ export default function App() {
                   {mensajesTicket.map(mensaje => <article key={mensaje.id} className="border-b border-slate-200 pb-2 last:border-0">
                     <div className="flex flex-wrap justify-between gap-2 text-xs"><strong>{mensaje.remitente_nombre || 'Usuario'}</strong><time className="text-slate-500">{formatLocalDateTime(mensaje.created_at_iso || mensaje.created_at)}</time></div>
                     <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{mensaje.mensaje}</p>
-                    <EvidenceGallery images={mensaje.imagenes || []} imagePathPrefix="/api/chat/imagenes/" />
                   </article>)}
                   {!mensajesTicket.length && <p className="text-sm text-slate-500">Todavía no hay mensajes en este ticket.</p>}
                 </div>
-                <form onSubmit={enviarMensajeTicket} className="space-y-2">
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input value={nuevoMensajeTicket} onChange={event => setNuevoMensajeTicket(event.target.value)} placeholder={currentUser.isAdmin ? 'Escriba una respuesta para este ticket...' : 'Agregue un dato que faltó al crear el ticket...'} className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm" />
-                    <button disabled={!nuevoMensajeTicket.trim() && !archivosMensajeTicket.length} className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">Enviar mensaje</button>
-                  </div>
-                  <EvidencePicker files={archivosMensajeTicket} onChange={setArchivosMensajeTicket} />
+                <form onSubmit={enviarMensajeTicket} className="flex flex-col gap-2 sm:flex-row">
+                  <input value={nuevoMensajeTicket} onChange={event => setNuevoMensajeTicket(event.target.value)} placeholder={currentUser.isAdmin ? 'Escriba una respuesta para este ticket...' : 'Agregue un dato que faltó al crear el ticket...'} className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm" />
+                  <button disabled={!nuevoMensajeTicket.trim()} className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">Enviar mensaje</button>
                 </form>
               </section>}
             </div>
