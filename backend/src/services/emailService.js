@@ -67,6 +67,21 @@ const enviarCorreoPrueba = async () => {
   return recipients.length;
 };
 
+const enviarAvisoTicket = async ({ ticketId, titulo, descripcion, categoria, prioridad, solicitante, destinatario }) => {
+  const recipients = parseRecipients(destinatario || process.env.IT_GENERAL_EMAIL);
+  if (!recipients.length || !isSmtpConfigured()) return { sent: false, reason: 'not-configured' };
+  const transporter = createTransporter();
+  const safe = value => escapeHtml(value || '—');
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: recipients,
+    subject: `Nuevo ticket SGTI #${ticketId}: ${titulo}`,
+    text: `Nuevo ticket #${ticketId}\n\nTítulo: ${titulo}\nCategoría: ${categoria}\nPrioridad: ${prioridad}\nSolicitante: ${solicitante}\n\n${descripcion}`,
+    html: `<h2>Nuevo ticket SGTI #${ticketId}</h2><p><strong>${safe(titulo)}</strong></p><p>Categoría: ${safe(categoria)} · Prioridad: ${safe(prioridad)} · Solicitante: ${safe(solicitante)}</p><p>${safe(descripcion).replace(/\n/g, '<br>')}</p><p>Ingrese al helpdesk para atenderlo.</p>`
+  });
+  return { sent: true, recipients: recipients.length };
+};
+
 const fechaLocal = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 const enviarResumenDiario = async () => {
@@ -158,5 +173,6 @@ module.exports = {
   getEmailStatus,
   iniciarRecordatoriosCorreo,
   parseRecipients,
-  enviarCorreoPrueba
+  enviarCorreoPrueba,
+  enviarAvisoTicket
 };

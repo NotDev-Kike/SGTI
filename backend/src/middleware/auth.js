@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const db = require('../config/db');
+const { registrarEvento, hashToken } = require('../services/auditService');
 
 const secret = process.env.AUTH_TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
 const adminRoles = new Set(['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo']);
@@ -16,7 +17,8 @@ function signToken(user) {
 }
 
 async function authenticate(req, res, next) {
-  const [scheme, token] = (req.headers.authorization || '').split(' ');
+  const authorization = req.headers.authorization || (req.query.token ? `Bearer ${req.query.token}` : '');
+  const [scheme, token] = authorization.split(' ');
   if (scheme !== 'Bearer' || !token) {
     return res.status(401).json({ success: false, message: 'Autenticación requerida.' });
   }
@@ -46,6 +48,9 @@ async function authenticate(req, res, next) {
     const { rows } = await db.query('SELECT id, email, rol FROM usuarios WHERE id = $1 AND activo = TRUE', [tokenUser.id]);
     if (!rows.length) return res.status(401).json({ success: false, message: 'La cuenta está inactiva.' });
     req.user = rows[0];
+    registrarEvento({ req, usuarioId: req.user.id, evento: 'sesion.actividad', entidad: 'usuario', entidadId: req.user.id });
+    db.query(`INSERT INTO sesiones_usuario (usuario_id, token_hash, ip, user_agent) VALUES ($1,$2,$3,$4)
+      ON CONFLICT DO NOTHING`, [req.user.id, hashToken(token), req.ip, req.headers['user-agent']]).catch(() => {});
     next();
   } catch (error) {
     console.error(error);

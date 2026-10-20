@@ -2,6 +2,7 @@ const db = require('../config/db');
 const crypto = require('crypto');
 const { promisify } = require('util');
 const { signToken } = require('../middleware/auth');
+const { registrarEvento } = require('../services/auditService');
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -20,6 +21,10 @@ exports.listarDepartamentos = async (_req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: 'No se pudieron cargar las áreas.' });
   }
+};
+
+exports.configuracionPublica = (_req, res) => {
+  res.json({ success: true, data: { correo_it: process.env.IT_GENERAL_EMAIL || 'it@empresa.com' } });
 };
 
 async function verifyPassword(password, storedPassword) {
@@ -75,6 +80,7 @@ exports.login = async (req, res) => {
       await db.query('UPDATE usuarios SET password = $1 WHERE id = $2', [await hashPassword(password), user.id]);
     }
 
+    await registrarEvento({ req, usuarioId: user.id, evento: 'sesion.inicio', entidad: 'usuario', entidadId: user.id });
     res.json({ success: true, user: formatUser(user), token: signToken(user) });
   } catch (error) {
     console.error(error);

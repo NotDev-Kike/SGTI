@@ -1,3 +1,69 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Base visual del helpdesk: superficies limpias, foco claro y acciones fáciles de reconocer. */
+.sgti-app { letter-spacing: -0.01em; }
+.sgti-app main { background: radial-gradient(circle at 100% 0%, rgb(59 130 246 / 5%), transparent 34rem); }
+.sgti-app button, .sgti-app a, .sgti-app input, .sgti-app select, .sgti-app textarea { transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.sgti-app button:not(:disabled):hover { transform: translateY(-1px); }
+.sgti-app input:focus, .sgti-app select:focus, .sgti-app textarea:focus { outline: none; border-color: #60a5fa !important; box-shadow: 0 0 0 3px rgb(96 165 250 / 18%); }
+.sgti-app details > summary::-webkit-details-marker { display: none; }
+.sgti-app details > summary { position: relative; }
+.sgti-app details > summary::after { content: '＋'; color: #94a3b8; font-size: .9rem; margin-left: .5rem; }
+.sgti-app details[open] > summary::after { content: '−'; }
+.sgti-app table tbody tr { transition: background-color .18s ease; }
+.sgti-app table tbody tr:hover { background-color: rgb(59 130 246 / 5%); }
+
+/* Tema oscuro: superficies azul-gris, contraste suave y estados legibles. */
+.sgti-dark {
+  --dark-bg: #0b1220;
+  --dark-surface: #121c2e;
+  --dark-surface-raised: #19263b;
+  --dark-border: #2b3b55;
+  --dark-text: #edf4ff;
+  --dark-muted: #a7b6ca;
+  background: var(--dark-bg) !important;
+  color: var(--dark-text) !important;
+}
+.sgti-dark .bg-white { background-color: var(--dark-surface) !important; }
+.sgti-dark .sgti-chat-header { background: linear-gradient(115deg, #172d4a 0%, #121c2e 72%) !important; }
+.sgti-dark .bg-gradient-to-r { background-image: linear-gradient(115deg, #172d4a 0%, #121c2e 72%) !important; }
+.sgti-dark .bg-slate-50 { background-color: var(--dark-bg) !important; }
+.sgti-dark .bg-slate-100 { background-color: var(--dark-surface-raised) !important; }
+.sgti-dark .bg-slate-200 { background-color: #24334b !important; }
+.sgti-dark .text-slate-900, .sgti-dark .text-slate-800 { color: var(--dark-text) !important; }
+.sgti-dark .text-slate-700, .sgti-dark .text-slate-600 { color: #d3deed !important; }
+.sgti-dark .text-slate-500, .sgti-dark .text-slate-400 { color: var(--dark-muted) !important; }
+.sgti-dark .border-slate-100, .sgti-dark .border-slate-200, .sgti-dark .border-slate-300 { border-color: var(--dark-border) !important; }
+.sgti-dark input, .sgti-dark textarea, .sgti-dark select { background-color: #0f192a !important; border-color: #3a4d6a !important; color: var(--dark-text) !important; }
+.sgti-dark input::placeholder, .sgti-dark textarea::placeholder { color: #8192aa !important; }
+.sgti-dark .hover\:bg-slate-50:hover, .sgti-dark .hover\:bg-slate-100:hover { background-color: #22324b !important; }
+.sgti-dark .bg-blue-700 { background-color: #3b82f6 !important; }
+.sgti-dark .hover\:bg-blue-800:hover { background-color: #60a5fa !important; color: #08111f !important; }
+.sgti-dark .text-blue-700, .sgti-dark .text-blue-800, .sgti-dark .text-blue-900 { color: #8cc2ff !important; }
+.sgti-dark .bg-blue-50, .sgti-dark .bg-sky-50 { background-color: #122b48 !important; }
+.sgti-dark .text-sky-800, .sgti-dark .text-sky-900 { color: #a7d3ff !important; }
+.sgti-dark .bg-amber-50, .sgti-dark .bg-amber-100 { background-color: #3b2d13 !important; }
+.sgti-dark .bg-amber-200 { background-color: #73551b !important; }
+.sgti-dark .text-amber-800, .sgti-dark .text-amber-900, .sgti-dark .text-amber-950 { color: #f5d27c !important; }
+.sgti-dark .bg-red-50, .sgti-dark .bg-red-100 { background-color: #3a1d2a !important; }
+.sgti-dark .text-red-700, .sgti-dark .text-red-900 { color: #ff9fb1 !important; }
+.sgti-dark .bg-emerald-50, .sgti-dark .bg-emerald-100 { background-color: #12352f !important; }
+.sgti-dark .text-emerald-700, .sgti-dark .text-emerald-800, .sgti-dark .text-emerald-900 { color: #9cf1d0 !important; }
+.sgti-dark .bg-emerald-50 { background-color: #155a45 !important; }
+.sgti-dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]), .sgti-dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--dark-border) !important; }
+.sgti-dark .shadow, .sgti-dark .shadow-sm, .sgti-dark .shadow-md { box-shadow: 0 8px 24px rgb(0 0 0 / 22%) !important; }
+.sgti-dark main { background: radial-gradient(circle at 100% 0%, rgb(59 130 246 / 10%), transparent 34rem); }
+.sgti-dark .sgti-app table tbody tr:hover { background-color: rgb(96 165 250 / 9%); }
+.sgti-dark .sgti-app details > summary::after { color: #9fb4d0; }
+.sgti-dark .sgti-nav-group { border: 0; background: transparent !important; box-shadow: none !important; }
+.sgti-dark .sgti-nav-principal { color: #d5e4ff !important; }
+.sgti-dark .sgti-nav-tickets { color: #b8dcff !important; }
+.sgti-dark .sgti-nav-administracion { color: #b9f1d8 !important; }
+.sgti-dark .sgti-nav-planificacion { color: #ffe29a !important; }
+.sgti-dark .sgti-nav-infraestructura { color: #b4f1ed !important; }
+.sgti-dark .sgti-nav-referencia { color: #d4e0ff !important; }
+.sgti-dark .sgti-nav-card { background: #101a2b !important; border-color: #2b3b55 !important; }
+.sgti-dark .sgti-nav-microsoft { background: #563b78 !important; color: #eadcff !important; }
+.sgti-dark .text-violet-900 { color: #eadcff !important; }

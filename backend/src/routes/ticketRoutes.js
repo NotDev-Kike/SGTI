@@ -13,6 +13,7 @@ router.get('/resueltos', ticketController.listarResueltosUsuario);
 router.get('/', ticketController.listarTickets);
 router.post('/', parseEvidenceImages, validarImagenes, ticketController.crearTicket);
 router.get('/:ticket_id/imagenes', evidenceImageController.listarImagenesTicket);
+router.get('/:id/historial', ticketController.listarHistorialTicket);
 router.post('/:id/encuesta', ticketController.enviarEncuesta);
 router.put('/:id/asignar', requireManager, ticketController.asignarTicket);
 router.put('/:id/resolver', requireAdmin, ticketController.resolverTicket);

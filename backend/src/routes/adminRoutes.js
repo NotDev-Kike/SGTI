@@ -3,6 +3,11 @@ const router = express.Router();
 const controller = require('../controllers/adminYUsuarioController');
 const evidenceImageController = require('../controllers/evidenceImageController');
 const { requireAdmin, requireManager, requireInfrastructure } = require('../middleware/auth');
+const enterprise = require('../controllers/enterpriseController');
+const integrations = require('../controllers/integrationController');
+const adminFiles = require('../controllers/adminFilesController');
+const multer = require('multer');
+const adminUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 // Planificación personal: usuarios finales solo acceden a sus propias tareas y calendario.
 router.get('/tareas', controller.listarTareas);
@@ -11,6 +16,27 @@ router.delete('/tareas/:id', controller.eliminarTarea);
 router.get('/calendario', controller.listarCalendario);
 
 router.use(requireAdmin);
+
+router.get('/sla', requireManager, enterprise.listarSla);
+router.post('/sla', requireManager, enterprise.guardarSla);
+router.get('/auditoria', requireManager, enterprise.listarAuditoria);
+router.get('/sesiones', requireManager, enterprise.listarSesiones);
+router.get('/activos', requireInfrastructure, enterprise.listarActivos);
+router.post('/activos', requireInfrastructure, enterprise.guardarActivo);
+router.put('/activos/:id', requireInfrastructure, enterprise.guardarActivo);
+router.get('/activos/:id/historial', requireInfrastructure, enterprise.historialActivo);
+router.post('/activos/:id/transferir', requireInfrastructure, enterprise.transferirActivo);
+router.post('/activos/:id/garantia', requireInfrastructure, adminUpload.single('garantia'), enterprise.subirGarantia);
+router.get('/activos/:id/garantia', requireInfrastructure, enterprise.descargarGarantia);
+router.post('/microsoft/solicitudes', enterprise.crearSolicitudMicrosoft);
+router.get('/microsoft/solicitudes', requireManager, enterprise.listarSolicitudesMicrosoft);
+router.get('/microsoft/estado', integrations.estadoMicrosoft);
+router.post('/microsoft/eventos', integrations.crearEventoMicrosoft);
+router.get('/microsoft/eventos', integrations.listarEventosMicrosoft);
+router.post('/microsoft/correo', integrations.enviarCorreoMicrosoft);
+router.get('/archivos', adminFiles.listar);
+router.get('/archivos/:id', adminFiles.descargar);
+router.post('/archivos', adminUpload.single('archivo'), adminFiles.enviar);
 
 // Usuarios y Rectificaciones
 router.get('/usuarios', requireManager, controller.listarUsuarios);

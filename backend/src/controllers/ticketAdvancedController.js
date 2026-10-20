@@ -1,5 +1,8 @@
 const db = require('../config/db');
 const { guardarImagenesEvidencia } = require('../services/evidenceImageService');
+const { assignTicket } = require('./enterpriseController');
+const microsoft = require('../services/microsoftService');
+const { enviarAvisoTicket } = require('../services/emailService');
 
 exports.listarCategorias = async (_req, res) => {
   try {
@@ -87,6 +90,22 @@ exports.crearTicket = async (req, res) => {
     const newTicketResult = await client.query(insertTicketQuery, ticketValues);
     const ticketCreado = newTicketResult.rows[0];
 
+    // SLA y enrutamiento automático por categoría/área. El responsable queda persistido desde la creación.
+    const slaResult = await client.query(`SELECT id, horas_respuesta, horas_resolucion FROM sla_politicas
+      WHERE activo=TRUE AND prioridad=$1 AND (categoria IS NULL OR LOWER(categoria)=LOWER($2))
+      ORDER BY categoria NULLS LAST LIMIT 1`, [ticketCreado.prioridad, ticketCreado.categoria]);
+    const sla = slaResult.rows[0];
+    const fechaLimiteSla = sla ? new Date(Date.now() + Number(sla.horas_resolucion) * 3600000) : fechaLimite;
+    const fechaRespuestaSla = sla ? new Date(Date.now() + Number(sla.horas_respuesta) * 3600000) : null;
+    const responsable = await assignTicket(client, ticketCreado.id, ticketCreado.categoria, departamento_destino_id);
+    await client.query(`UPDATE tickets SET fecha_limite=$1, fecha_limite_respuesta=$2, sla_politica_id=$3 WHERE id=$4`, [fechaLimiteSla, fechaRespuestaSla, sla?.id || null, ticketCreado.id]);
+    ticketCreado.asignado_a_id = responsable;
+    ticketCreado.fecha_limite = fechaLimiteSla;
+    if (responsable) {
+      const responsableResult = await client.query('SELECT nombre AS asignado_nombre FROM usuarios WHERE id=$1', [responsable]);
+      ticketCreado.asignado_nombre = responsableResult.rows[0]?.asignado_nombre || null;
+    }
+
     // Registrar en la tabla de historial (auditoría)
     const insertHistorialQuery = `
       INSERT INTO ticket_historial (ticket_id, usuario_id, accion)
@@ -99,6 +118,12 @@ exports.crearTicket = async (req, res) => {
       files: req.files || []
     });
     await client.query('COMMIT');
+
+    // Microsoft 365 es el primer aviso; un fallo de correo nunca cancela el ticket.
+    const aviso = `Se creó el ticket #${ticketCreado.id}: ${ticketCreado.titulo}. Responsable: ${ticketCreado.asignado_nombre || 'Gerencia de IT'}.`;
+    const destinatarios = await db.query(`SELECT email FROM usuarios WHERE rol='gerente_it' AND activo=TRUE OR id=$1`, [responsable]);
+    destinatarios.rows.forEach(destinatario => microsoft.notifyTicket(ticketCreado, destinatario.email, `Nuevo ticket SGTI #${ticketCreado.id}`, `<p>${aviso}</p>`).catch(error => console.error('Aviso Microsoft:', error.message)));
+    enviarAvisoTicket({ ticketId: ticketCreado.id, titulo: ticketCreado.titulo, descripcion: ticketCreado.descripcion, categoria: ticketCreado.categoria, prioridad: ticketCreado.prioridad, solicitante: req.user.email }).catch(error => console.error('Aviso al correo general de IT:', error.message));
 
     res.status(201).json({ 
       success: true, 
@@ -139,6 +164,18 @@ exports.listarHistorial = async (req, res) => {
     console.error(error);
     res.status(500).json({ success: false, message: 'Error al cargar el historial', error: error.message });
   }
+};
+
+exports.listarHistorialTicket = async (req, res) => {
+  try {
+    const ticket = await db.query(`SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id=$1`, [req.params.id]);
+    if (!ticket.rows.length) return res.status(404).json({ success: false, message: 'Ticket no encontrado.' });
+    const t = ticket.rows[0];
+    const esAdmin = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'].includes(req.user.rol);
+    if (!esAdmin && Number(t.usuario_creador_id) !== Number(req.user.id) && Number(t.asignado_a_id) !== Number(req.user.id)) return res.status(403).json({ success: false, message: 'No tiene acceso al historial.' });
+    const { rows } = await db.query(`SELECT h.*, u.nombre AS usuario_nombre, u.rol AS usuario_rol FROM ticket_historial h LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE h.ticket_id=$1 ORDER BY h.created_at ASC`, [req.params.id]);
+    res.json({ success: true, data: rows });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 };
 
 exports.listarResueltosUsuario = async (req, res) => {

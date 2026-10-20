@@ -10,6 +10,9 @@
     "migrate:user-archives": "node scripts/migrate-user-archives.js",
     "migrate:evidence-images": "node scripts/migrate-evidence-images.js",
     "migrate:remote-assistance": "node scripts/migrate-remote-assistance.js",
+    "migrate:enterprise": "node scripts/migrate-enterprise.js",
+    "migrate:microsoft-personal": "node scripts/migrate-microsoft-personal.js",
+    "migrate:microsoft-sso": "node scripts/migrate-microsoft-sso.js",
     "migrate:helpdesk": "node scripts/migrate-helpdesk.js",
     "postinstall": "prisma skills sync || exit 0"
   },

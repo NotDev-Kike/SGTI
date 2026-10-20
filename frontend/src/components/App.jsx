@@ -4,9 +4,20 @@ import ApiReference from './ApiReference';
 import ArchivedUsers from './ArchivedUsers';
 import { EvidenceGallery, EvidencePicker } from './EvidenceImages';
 import RemoteAssistance from './RemoteAssistance';
+import EnterpriseConsole from './EnterpriseConsole';
 import { apiFetch } from '../api';
 
-const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+const detectarApiBaseUrl = () => {
+  if (process.env.REACT_APP_API_BASE_URL) return process.env.REACT_APP_API_BASE_URL.replace(/\/$/, '');
+  if (typeof window === 'undefined') return '';
+  const { protocol, hostname } = window.location;
+  // En Codespaces el frontend y el backend se publican en puertos distintos.
+  // Esto evita que /api/microsoft/connect sea atendido por el fallback HTML de React.
+  if (hostname.includes('-3000.')) return `${protocol}//${hostname.replace('-3000.', '-5000.')}`;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return `${protocol}//${hostname}:5000`;
+  return '';
+};
+const API_BASE_URL = detectarApiBaseUrl();
 
 const parseLocalDate = value => {
   if (typeof value === 'string') {
@@ -109,16 +120,22 @@ export default function App() {
     const user = saved ? JSON.parse(saved) : null;
     return user?.token ? user : null;
   });
+  const [modoOscuro, setModoOscuro] = useState(() => localStorage.getItem('sgti_modo_oscuro') !== 'false');
+
+  useEffect(() => {
+    localStorage.setItem('sgti_modo_oscuro', String(modoOscuro));
+    document.documentElement.classList.toggle('dark', modoOscuro);
+  }, [modoOscuro]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [seccionesAbiertas, setSeccionesAbiertas] = useState({
-    principal: false,
-    tickets: false,
-    administracion: false,
-    planificacion: false,
-    infraestructura: false,
-    referencia: false
+    principal: true,
+    tickets: true,
+    administracion: true,
+    planificacion: true,
+    infraestructura: true,
+    referencia: true
   });
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardBandeja, setDashboardBandeja] = useState('asignados');
@@ -475,12 +492,18 @@ export default function App() {
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
     setActiveTab('dashboard');
-    setSeccionesAbiertas({ principal: false, tickets: false, administracion: false, planificacion: false, infraestructura: false, referencia: false });
+    setSeccionesAbiertas({ principal: true, tickets: true, administracion: true, planificacion: true, infraestructura: true, referencia: true });
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('sgti_user');
+  };
+
+  const irAMicrosoft = event => {
+    event.preventDefault();
+    setSidebarOpen(false);
+    setActiveTab('solicitud_microsoft');
   };
 
   const guardarListaEntrega = event => {
@@ -613,9 +636,9 @@ export default function App() {
       .some(valor => String(valor || '').toLocaleLowerCase().includes(termino)));
   };
   const etiquetasSeccion = {
-    dashboard: 'Dashboard', crear_ticket: 'Crear ticket', todos_tickets: 'Tickets de todos', asignaciones: 'Asignación de tickets',
+    dashboard: 'Inicio', crear_ticket: 'Crear solicitud', todos_tickets: 'Bandeja de tickets', asignaciones: 'Asignación de tickets',
     historial: 'Historial', usuarios: 'Gestión de usuarios', usuarios_archivo: 'Archivo de usuarios', categorias: 'Gestión de categorías', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
-    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis tickets', inventario: 'Inventario por departamento', entregas: 'Entrega de artículos'
+    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis solicitudes', inventario: 'Inventario por departamento', entregas: 'Entrega de artículos', empresa: 'Operación empresarial', solicitud_microsoft: 'Mi Microsoft'
   };
   const estilosGrupoNav = {
     principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
@@ -623,20 +646,16 @@ export default function App() {
     administracion: { fondo: 'bg-emerald-50', titulo: 'text-emerald-800', activo: 'border-emerald-600 bg-emerald-50 text-emerald-900' },
     planificacion: { fondo: 'bg-amber-50', titulo: 'text-amber-800', activo: 'border-amber-600 bg-amber-50 text-amber-900' },
     infraestructura: { fondo: 'bg-teal-50', titulo: 'text-teal-800', activo: 'border-teal-600 bg-teal-50 text-teal-900' },
-    referencia: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' }
+    referencia: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
+    microsoft: { fondo: 'bg-violet-50', titulo: 'text-violet-800', activo: 'border-violet-600 bg-violet-50 text-violet-900' }
   };
   const claseNav = (tab, grupo) => `w-full flex items-center gap-3 rounded-md border-l-2 px-3 py-2.5 font-medium transition ${activeTab === tab ? estilosGrupoNav[grupo].activo : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
-  const tituloNav = (texto, grupo) => <button
-    type="button"
+  const tituloNav = (texto, grupo) => <div
     id={`nav-heading-${grupo}`}
-    aria-expanded={seccionesAbiertas[grupo]}
-    aria-controls={`nav-section-${grupo}`}
-    onClick={() => setSeccionesAbiertas(actual => ({ ...actual, [grupo]: !actual[grupo] }))}
-    className={`mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-md px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].fondo} ${estilosGrupoNav[grupo].titulo}`}
+    className={`sgti-nav-group sgti-nav-${grupo} mx-1 mb-1 flex w-[calc(100%-0.5rem)] items-center px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider ${estilosGrupoNav[grupo].titulo}`}
   >
     <span>{texto}</span>
-    <span className="ml-auto text-sm" aria-hidden="true">{seccionesAbiertas[grupo] ? '-' : '+'}</span>
-  </button>;
+  </div>;
   const ticketsAsignados = currentUser?.isAdmin
     ? tickets.filter(ticket => Number(ticket.asignado_a_id) === Number(currentUser.id))
     : [];
@@ -723,17 +742,17 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
+    <div className={`sgti-app min-h-screen bg-slate-50 flex font-sans text-slate-800 ${modoOscuro ? 'sgti-dark' : ''}`}>
       
       {/* BARRA LATERAL DINÁMICA */}
-      <aside id="sgti-sidebar" className={`fixed inset-y-0 left-0 z-50 w-64 bg-white text-slate-600 border-r border-slate-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} transition-transform duration-300 ease-in-out flex flex-col`}>
+      <aside id="sgti-sidebar" className={`fixed inset-y-0 left-0 z-50 w-64 bg-white text-slate-600 border-r border-slate-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col`}>
         <div className="p-5 border-b border-slate-100 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-extrabold text-slate-900">SGTI</h2>
             <p className="text-xs text-blue-700 font-semibold">{currentUser.area}</p>
           </div>
           <div className="flex items-center gap-2">
-            {currentUser.rol === 'gerente_it' && <button
+            {currentUser.isAdmin && <button
               type="button"
               onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }}
               className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition ${activeTab === 'apis' ? 'border-blue-700 bg-blue-700 text-white' : 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'}`}
@@ -745,8 +764,9 @@ export default function App() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
-          {tituloNav('Principal', 'principal')}
-          <div id="nav-section-principal" aria-labelledby="nav-heading-principal" hidden={!seccionesAbiertas.principal}>
+          <section className="sgti-nav-card mb-3 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+            {tituloNav('Principal', 'principal')}
+            <div id="nav-section-principal" aria-labelledby="nav-heading-principal">
             <button
               onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
               className={claseNav('dashboard', 'principal')}
@@ -759,10 +779,12 @@ export default function App() {
             >
               Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
             </button>
-          </div>
+            </div>
+          </section>
 
-          {tituloNav('Atención de tickets', 'tickets')}
-          <div id="nav-section-tickets" aria-labelledby="nav-heading-tickets" hidden={!seccionesAbiertas.tickets}>
+          <section className="sgti-nav-card mb-3 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+            {tituloNav('Atención de tickets', 'tickets')}
+            <div id="nav-section-tickets" aria-labelledby="nav-heading-tickets">
             {currentUser.isAdmin ? (
               <>
               <button
@@ -775,7 +797,7 @@ export default function App() {
                 onClick={() => { setActiveTab('todos_tickets'); setSidebarOpen(false); }}
                 className={claseNav('todos_tickets', 'tickets')}
               >
-                Tickets de todos ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
+                Bandeja de tickets ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
               </button>
                     {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('asignaciones'); setSidebarOpen(false); }}
@@ -802,7 +824,7 @@ export default function App() {
                   onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
                   className={claseNav('mis_tickets', 'tickets')}
                 >
-                  Mis tickets
+                  Mis solicitudes
                 </button>
                 <button
                   onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
@@ -812,11 +834,12 @@ export default function App() {
                 </button>
               </>
             )}
-          </div>
+            </div>
+          </section>
 
-          {currentUser.rol === 'gerente_it' && <>
+          {currentUser.rol === 'gerente_it' && <section className="sgti-nav-card mb-3 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
             {tituloNav('Administración', 'administracion')}
-            <div id="nav-section-administracion" aria-labelledby="nav-heading-administracion" hidden={!seccionesAbiertas.administracion}>
+            <div id="nav-section-administracion" aria-labelledby="nav-heading-administracion">
               <button
                 onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
                 className={claseNav('usuarios', 'administracion')}
@@ -839,12 +862,13 @@ export default function App() {
                 onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
                 className={claseNav('configuracion', 'administracion')}
               >Configuración</button>
+              <button onClick={() => { setActiveTab('empresa'); setSidebarOpen(false); }} className={claseNav('empresa', 'administracion')}>SLA, auditoría y archivos</button>
             </div>
-          </>}
+          </section>}
 
-          <>
+          <section className="sgti-nav-card mb-3 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
             {tituloNav('Planificación', 'planificacion')}
-            <div id="nav-section-planificacion" aria-labelledby="nav-heading-planificacion" hidden={!seccionesAbiertas.planificacion}>
+            <div id="nav-section-planificacion" aria-labelledby="nav-heading-planificacion">
               <button 
                 onClick={() => { setActiveTab('calendario'); setSidebarOpen(false); }}
                 className={claseNav('calendario', 'planificacion')}
@@ -862,11 +886,11 @@ export default function App() {
                 className={claseNav('proyectos', 'planificacion')}
               >Proyectos de IT</button>}
             </div>
-          </>
+          </section>
 
-          {currentUser.rol === 'admin_infra' && <>
+          {currentUser.rol === 'admin_infra' && <section className="sgti-nav-card mb-3 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
             {tituloNav('Infraestructura', 'infraestructura')}
-            <div id="nav-section-infraestructura" aria-labelledby="nav-heading-infraestructura" hidden={!seccionesAbiertas.infraestructura}>
+            <div id="nav-section-infraestructura" aria-labelledby="nav-heading-infraestructura">
               <button
                 onClick={() => { setActiveTab('inventario'); setSidebarOpen(false); }}
                 className={claseNav('inventario', 'infraestructura')}
@@ -875,15 +899,10 @@ export default function App() {
                 onClick={() => { setActiveTab('entregas'); setSidebarOpen(false); }}
                 className={claseNav('entregas', 'infraestructura')}
               >Entrega de artículos</button>
+              <button onClick={() => { setActiveTab('empresa'); setSidebarOpen(false); }} className={claseNav('empresa', 'infraestructura')}>Activos y ciclo de vida</button>
             </div>
-          </>}
+          </section>}
 
-          {currentUser.isAdmin && currentUser.rol !== 'gerente_it' && <>
-            {tituloNav('Referencia', 'referencia')}
-            <div id="nav-section-referencia" aria-labelledby="nav-heading-referencia" hidden={!seccionesAbiertas.referencia}>
-              <button onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }} className={claseNav('apis', 'referencia')}>Referencia de API</button>
-            </div>
-          </>}
         </nav>
 
         <div className="p-4 border-t border-slate-100 bg-white">
@@ -899,21 +918,24 @@ export default function App() {
       </aside>
 
       {/* CONTENIDO PRINCIPAL */}
-      <div className={`flex-1 flex flex-col min-w-0 transition-[margin] duration-300 ${sidebarCollapsed ? '' : 'md:ml-64'}`}>
-        <header className="bg-white border-b border-slate-200 min-h-16 flex flex-wrap items-center justify-between gap-3 px-6 py-3 sticky top-0 z-40">
+      <div className="flex min-w-0 flex-1 flex-col md:ml-64">
+        <header className="bg-white border-b border-slate-200 min-h-16 flex items-center gap-3 px-4 sm:px-6 py-3 sticky top-0 z-40">
           <button
             type="button"
             aria-label="Alternar menú de navegación"
             aria-controls="sgti-sidebar"
-            onClick={() => { if (window.innerWidth < 768) setSidebarOpen(true); else setSidebarCollapsed(!sidebarCollapsed); }}
-            className="flex h-10 w-10 items-center justify-center rounded text-xl text-slate-700 hover:bg-slate-100"
+            onClick={() => setSidebarOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded text-xl text-slate-700 hover:bg-slate-100 md:hidden"
           >
             <span className="md:hidden" aria-hidden="true">{sidebarOpen ? '←' : '→'}</span>
-            <span className="hidden md:inline" aria-hidden="true">{sidebarCollapsed ? '→' : '←'}</span>
           </button>
-          <div className="text-sm font-bold text-slate-700">{etiquetasSeccion[activeTab] || 'Inicio'}</div>
-          {(activeTab === 'todos_tickets' || activeTab === 'mis_tickets' || activeTab === 'historial' || activeTab === 'asignaciones') && <input type="search" aria-label="Buscar tickets" placeholder="Buscar ticket..." value={busqueda} onChange={event => setBusqueda(event.target.value)} className="w-full sm:w-64 px-3 py-2 border border-slate-300 rounded text-sm" />}
-          <div className="text-xs bg-slate-100 px-3 py-1 rounded-full font-semibold border">{currentUser.area}</div>
+          <div className="min-w-0 flex-1 text-sm font-bold text-slate-700">{etiquetasSeccion[activeTab] || 'Inicio'}</div>
+          {(activeTab === 'todos_tickets' || activeTab === 'mis_tickets' || activeTab === 'historial' || activeTab === 'asignaciones') && <input type="search" aria-label="Buscar tickets" placeholder="Buscar ticket..." value={busqueda} onChange={event => setBusqueda(event.target.value)} className="hidden w-64 px-3 py-2 border border-slate-300 rounded text-sm lg:block" />}
+          {!currentUser.isAdmin && <button type="button" onClick={irAMicrosoft} className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition ${activeTab === 'solicitud_microsoft' ? 'border-violet-700 bg-violet-700 text-white' : 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>Mi Microsoft</button>}
+          <div className="hidden shrink-0 text-xs bg-slate-100 px-3 py-1 rounded-full font-semibold border sm:block">{currentUser.area}</div>
+          <button type="button" onClick={() => setModoOscuro(value => !value)} className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100" aria-label="Cambiar modo de color">
+            {modoOscuro ? '☀️ Claro' : '🌙 Oscuro'}
+          </button>
         </header>
 
         <main className={`p-6 flex-1 w-full mx-auto space-y-6 ${currentUser.isAdmin ? 'max-w-screen-2xl' : sidebarCollapsed ? 'max-w-7xl' : 'max-w-5xl'}`}>
@@ -1755,7 +1777,7 @@ export default function App() {
           {/* CHAT INMEDIATO */}
           {activeTab === 'chat' && (
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white px-5 py-4">
+              <div className="sgti-chat-header border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white px-5 py-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Centro de soporte</p>
                 <h2 className="mt-1 text-xl font-bold text-slate-900">{seccionSoporte === 'remota' ? 'Asistencia remota' : 'Mensajes con IT'}</h2>
                 <p className="mt-1 text-sm text-slate-600">{currentUser.isAdmin ? 'Revise las conversaciones de usuarios y responda desde una sola bandeja.' : 'Elija el equipo de soporte para consultar o enviar un mensaje.'}</p>
@@ -1872,6 +1894,8 @@ export default function App() {
           )}
 
           {activeTab === 'apis' && currentUser.isAdmin && <ApiReference />}
+          {activeTab === 'empresa' && currentUser.isAdmin && <EnterpriseConsole apiBaseUrl={API_BASE_URL} currentUser={currentUser} departamentos={departamentos} mode={currentUser.rol === 'admin_infra' ? 'infra' : 'admin'} />}
+          {activeTab === 'solicitud_microsoft' && !currentUser.isAdmin && <EnterpriseConsole apiBaseUrl={API_BASE_URL} currentUser={currentUser} departamentos={departamentos} mode="request" />}
 
         </main>
         {dialogo && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 p-4" onClick={() => dialogo.tipo !== 'confirm' && setDialogo(null)}>
