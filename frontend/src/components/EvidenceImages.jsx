@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { apiFetch } from '../api';
+import { apiFetch, getApiBaseUrl } from '../api';
 
-const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+const API_BASE_URL = getApiBaseUrl();
 const MAX_FILES = 5;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];

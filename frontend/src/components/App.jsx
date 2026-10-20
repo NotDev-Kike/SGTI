@@ -5,19 +5,9 @@ import ArchivedUsers from './ArchivedUsers';
 import { EvidenceGallery, EvidencePicker } from './EvidenceImages';
 import RemoteAssistance from './RemoteAssistance';
 import EnterpriseConsole from './EnterpriseConsole';
-import { apiFetch } from '../api';
+import { apiFetch, getApiBaseUrl } from '../api';
 
-const detectarApiBaseUrl = () => {
-  if (process.env.REACT_APP_API_BASE_URL) return process.env.REACT_APP_API_BASE_URL.replace(/\/$/, '');
-  if (typeof window === 'undefined') return '';
-  const { protocol, hostname } = window.location;
-  // En Codespaces el frontend y el backend se publican en puertos distintos.
-  // Esto evita que /api/microsoft/connect sea atendido por el fallback HTML de React.
-  if (hostname.includes('-3000.')) return `${protocol}//${hostname.replace('-3000.', '-5000.')}`;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') return `${protocol}//${hostname}:5000`;
-  return '';
-};
-const API_BASE_URL = detectarApiBaseUrl();
+const API_BASE_URL = getApiBaseUrl();
 
 const parseLocalDate = value => {
   if (typeof value === 'string') {

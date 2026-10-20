@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { apiFetch } from '../api';
+import { apiFetch, getApiBaseUrl } from '../api';
 import { EvidenceGallery } from './EvidenceImages';
 
-const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+const API_BASE_URL = getApiBaseUrl();
 
 const sections = [
   ['usuario', 'Datos originales de la cuenta'],
