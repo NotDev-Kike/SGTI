@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+html, body, #root { min-height: 100%; }
+body { margin: 0; background: #f4f6f8; }
+
 /* Base visual del helpdesk: superficies limpias, foco claro y acciones fáciles de reconocer. */
 .sgti-app { letter-spacing: -0.01em; }
 .sgti-app main { background: radial-gradient(circle at 100% 0%, rgb(59 130 246 / 5%), transparent 34rem); }
@@ -15,55 +18,245 @@
 .sgti-app table tbody tr { transition: background-color .18s ease; }
 .sgti-app table tbody tr:hover { background-color: rgb(59 130 246 / 5%); }
 
-/* Tema oscuro: superficies azul-gris, contraste suave y estados legibles. */
-.sgti-dark {
-  --dark-bg: #0b1220;
-  --dark-surface: #121c2e;
-  --dark-surface-raised: #19263b;
-  --dark-border: #2b3b55;
-  --dark-text: #edf4ff;
-  --dark-muted: #a7b6ca;
-  background: var(--dark-bg) !important;
-  color: var(--dark-text) !important;
+
+/* Mesa de ayuda: navegación compacta y foco en la bandeja de trabajo. */
+#sgti-sidebar {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #334155 !important;
 }
-.sgti-dark .bg-white { background-color: var(--dark-surface) !important; }
-.sgti-dark .sgti-chat-header { background: linear-gradient(115deg, #172d4a 0%, #121c2e 72%) !important; }
-.sgti-dark .bg-gradient-to-r { background-image: linear-gradient(115deg, #172d4a 0%, #121c2e 72%) !important; }
-.sgti-dark .bg-slate-50 { background-color: var(--dark-bg) !important; }
-.sgti-dark .bg-slate-100 { background-color: var(--dark-surface-raised) !important; }
-.sgti-dark .bg-slate-200 { background-color: #24334b !important; }
-.sgti-dark .text-slate-900, .sgti-dark .text-slate-800 { color: var(--dark-text) !important; }
-.sgti-dark .text-slate-700, .sgti-dark .text-slate-600 { color: #d3deed !important; }
-.sgti-dark .text-slate-500, .sgti-dark .text-slate-400 { color: var(--dark-muted) !important; }
-.sgti-dark .border-slate-100, .sgti-dark .border-slate-200, .sgti-dark .border-slate-300 { border-color: var(--dark-border) !important; }
-.sgti-dark input, .sgti-dark textarea, .sgti-dark select { background-color: #0f192a !important; border-color: #3a4d6a !important; color: var(--dark-text) !important; }
-.sgti-dark input::placeholder, .sgti-dark textarea::placeholder { color: #8192aa !important; }
-.sgti-dark .hover\:bg-slate-50:hover, .sgti-dark .hover\:bg-slate-100:hover { background-color: #22324b !important; }
-.sgti-dark .bg-blue-700 { background-color: #3b82f6 !important; }
-.sgti-dark .hover\:bg-blue-800:hover { background-color: #60a5fa !important; color: #08111f !important; }
-.sgti-dark .text-blue-700, .sgti-dark .text-blue-800, .sgti-dark .text-blue-900 { color: #8cc2ff !important; }
-.sgti-dark .bg-blue-50, .sgti-dark .bg-sky-50 { background-color: #122b48 !important; }
-.sgti-dark .text-sky-800, .sgti-dark .text-sky-900 { color: #a7d3ff !important; }
-.sgti-dark .bg-amber-50, .sgti-dark .bg-amber-100 { background-color: #3b2d13 !important; }
-.sgti-dark .bg-amber-200 { background-color: #73551b !important; }
-.sgti-dark .text-amber-800, .sgti-dark .text-amber-900, .sgti-dark .text-amber-950 { color: #f5d27c !important; }
-.sgti-dark .bg-red-50, .sgti-dark .bg-red-100 { background-color: #3a1d2a !important; }
-.sgti-dark .text-red-700, .sgti-dark .text-red-900 { color: #ff9fb1 !important; }
-.sgti-dark .bg-emerald-50, .sgti-dark .bg-emerald-100 { background-color: #12352f !important; }
-.sgti-dark .text-emerald-700, .sgti-dark .text-emerald-800, .sgti-dark .text-emerald-900 { color: #9cf1d0 !important; }
-.sgti-dark .bg-emerald-50 { background-color: #155a45 !important; }
-.sgti-dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]), .sgti-dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--dark-border) !important; }
-.sgti-dark .shadow, .sgti-dark .shadow-sm, .sgti-dark .shadow-md { box-shadow: 0 8px 24px rgb(0 0 0 / 22%) !important; }
-.sgti-dark main { background: radial-gradient(circle at 100% 0%, rgb(59 130 246 / 10%), transparent 34rem); }
-.sgti-dark .sgti-app table tbody tr:hover { background-color: rgb(96 165 250 / 9%); }
-.sgti-dark .sgti-app details > summary::after { color: #9fb4d0; }
-.sgti-dark .sgti-nav-group { border: 0; background: transparent !important; box-shadow: none !important; }
-.sgti-dark .sgti-nav-principal { color: #d5e4ff !important; }
-.sgti-dark .sgti-nav-tickets { color: #b8dcff !important; }
-.sgti-dark .sgti-nav-administracion { color: #b9f1d8 !important; }
-.sgti-dark .sgti-nav-planificacion { color: #ffe29a !important; }
-.sgti-dark .sgti-nav-infraestructura { color: #b4f1ed !important; }
-.sgti-dark .sgti-nav-referencia { color: #d4e0ff !important; }
-.sgti-dark .sgti-nav-card { background: #101a2b !important; border-color: #2b3b55 !important; }
-.sgti-dark .sgti-nav-microsoft { background: #563b78 !important; color: #eadcff !important; }
-.sgti-dark .text-violet-900 { color: #eadcff !important; }
+#sgti-sidebar > div:first-child,
+#sgti-sidebar > div:last-child {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+#sgti-sidebar > div:first-child h2,
+#sgti-sidebar > div:last-child .text-slate-800 {
+  color: #0f172a !important;
+}
+#sgti-sidebar > div:first-child p,
+#sgti-sidebar > div:last-child .text-slate-400 {
+  color: #64748b !important;
+}
+#sgti-sidebar .sgti-nav-card {
+  margin-bottom: .65rem !important;
+  padding: .35rem !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: .7rem !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%) !important;
+}
+#sgti-sidebar .sgti-nav-group {
+  display: block !important;
+  margin: .2rem .2rem .45rem !important;
+  padding: .35rem .6rem !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: .45rem !important;
+  background: #f8fafc !important;
+  color: #64748b !important;
+  font-size: .62rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase !important;
+}
+#sgti-sidebar button {
+  color: #334155 !important;
+  border-left-color: transparent !important;
+  border-radius: .35rem !important;
+}
+#sgti-sidebar button:hover {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+#sgti-sidebar button.border-l-2 {
+  background: transparent !important;
+}
+#sgti-sidebar button.border-l-2.bg-slate-100,
+#sgti-sidebar button.border-l-2.bg-sky-50,
+#sgti-sidebar button.border-l-2.bg-emerald-50,
+#sgti-sidebar button.border-l-2.bg-amber-50,
+#sgti-sidebar button.border-l-2.bg-teal-50 {
+  background: #e0f2fe !important;
+  color: #075985 !important;
+  border-left-color: #38bdf8 !important;
+}
+#sgti-sidebar .border-t {
+  border-color: #e2e8f0 !important;
+}
+#sgti-sidebar .hover\:bg-red-50:hover {
+  background: #fef2f2 !important;
+  color: #b91c1c !important;
+}
+.sgti-app main {
+  background: #f4f6f8 !important;
+}
+.sgti-app main > div > section,
+.sgti-app main > div > div,
+.sgti-app main section.rounded-lg,
+.sgti-app main section.rounded-xl {
+  border-radius: .5rem !important;
+}
+.sgti-app main h1 {
+  letter-spacing: -.03em;
+}
+.sgti-app main .shadow-2xl,
+.sgti-app main .shadow-xl,
+.sgti-app main .shadow-lg {
+  box-shadow: 0 8px 24px rgb(15 42 67 / 8%) !important;
+}
+.sgti-app header {
+  background: #ffffff !important;
+  min-height: 3.75rem !important;
+  box-shadow: 0 1px 0 rgb(15 42 67 / 6%);
+}
+.sgti-app header input {
+  background: #f8fafc;
+}
+/* En claro, las superficies deben sentirse ligeras como una bandeja de trabajo. */
+.sgti-app main .bg-white {
+  box-shadow: 0 1px 3px rgb(15 42 67 / 5%);
+}
+.sgti-app main .border-slate-200 {
+  border-color: #e2e8f0 !important;
+}
+.sgti-app main .bg-slate-50 {
+  background-color: #f8fafc !important;
+}
+.sgti-app main .bg-blue-700 {
+  background-color: #3478c7 !important;
+}
+.sgti-app main .hover\:bg-blue-800:hover {
+  background-color: #2866ac !important;
+}
+
+/* Correspondencia visual con la bandeja de referencia. */
+.sgti-app #sgti-sidebar {
+  background: #ffffff !important;
+}
+.sgti-app #sgti-sidebar > div:first-child,
+.sgti-app #sgti-sidebar > div:last-child {
+  background: #ffffff !important;
+}
+.sgti-app main .dashboard-welcome {
+  background: #ffffff !important;
+  border-color: #e2e7ed !important;
+}
+.sgti-app main .dashboard-tabs {
+  gap: 0 !important;
+  overflow-x: auto;
+  border: 1px solid #e4e7eb;
+  border-radius: .35rem;
+  background: #ffffff;
+}
+.sgti-app main .dashboard-tabs > button {
+  min-height: 3.8rem;
+  flex: 1 0 9rem;
+  border: 0 !important;
+  border-right: 1px solid #edf0f3 !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  color: #6b7280 !important;
+  text-transform: uppercase;
+  font-size: .65rem;
+  letter-spacing: .02em;
+}
+.sgti-app main .dashboard-tabs > button:nth-child(1) { border-top: 3px solid #c95353 !important; }
+.sgti-app main .dashboard-tabs > button:nth-child(2) { border-top: 3px solid #d97955 !important; }
+.sgti-app main .dashboard-tabs > button:nth-child(3) { border-top: 3px solid #5a7db4 !important; }
+.sgti-app main .dashboard-tabs > button:nth-child(4) { border-top: 3px solid #e0a43b !important; }
+.sgti-app main .dashboard-tabs > button[aria-pressed="true"] {
+  color: #25364a !important;
+  box-shadow: inset 0 -3px 0 #d97955;
+}
+.sgti-app main .dashboard-remote-assistance {
+  display: none;
+}
+.sgti-app main .dashboard-welcome {
+  padding: 1.25rem 1.5rem !important;
+}
+
+
+/* Menú lateral contraído: iconos primero, etiquetas al desplegar. */
+@media (min-width: 768px) {
+  #sgti-sidebar {
+    transition: width .25s ease, transform .3s ease;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed {
+    width: 88px !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:first-child {
+    justify-content: center;
+    padding: 1rem .5rem !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:first-child > div:first-child {
+    text-align: center;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:first-child h2 {
+    font-size: 0 !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:first-child h2::before {
+    content: 'S';
+    font-size: 1.4rem;
+    color: #0f172a;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:first-child p,
+  #sgti-sidebar.sgti-sidebar-collapsed .sgti-nav-group,
+  #sgti-sidebar.sgti-sidebar-collapsed > div:last-child .text-slate-400,
+  #sgti-sidebar.sgti-sidebar-collapsed > div:last-child .text-slate-800 {
+    display: none !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed .sgti-sidebar-toggle {
+    display: block !important;
+    position: absolute;
+    right: -10px;
+    top: 1rem;
+    width: 20px;
+    height: 26px;
+    padding: 0;
+    border-radius: 0 5px 5px 0;
+    background: #ffffff !important;
+    color: #23415e !important;
+    box-shadow: 1px 0 3px rgb(15 42 67 / 14%);
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed nav {
+    padding: .5rem .35rem !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed .sgti-nav-card {
+    margin-bottom: .35rem !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2 {
+    justify-content: center;
+    min-height: 42px;
+    padding: .65rem .25rem !important;
+    border-left: 0 !important;
+    font-size: 0 !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2::before {
+    content: attr(data-icon);
+    display: block;
+    color: #475569;
+    font-size: 1.15rem;
+    line-height: 1;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2.bg-slate-100::before,
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2.bg-sky-50::before,
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2.bg-emerald-50::before,
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2.bg-amber-50::before,
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2.bg-teal-50::before {
+    color: #0369a1;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed button.border-l-2 span {
+    display: none !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:last-child {
+    padding: .6rem .35rem !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:last-child button {
+    font-size: 0 !important;
+    padding: .65rem .25rem !important;
+  }
+  #sgti-sidebar.sgti-sidebar-collapsed > div:last-child button::before {
+    content: '↪';
+    font-size: 1rem;
+  }
+}

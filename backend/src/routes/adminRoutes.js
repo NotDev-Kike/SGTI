@@ -4,6 +4,7 @@ const controller = require('../controllers/adminYUsuarioController');
 const evidenceImageController = require('../controllers/evidenceImageController');
 const { requireAdmin, requireManager, requireInfrastructure } = require('../middleware/auth');
 const enterprise = require('../controllers/enterpriseController');
+const deliveryEvidence = require('../controllers/deliveryEvidenceController');
 const integrations = require('../controllers/integrationController');
 const adminFiles = require('../controllers/adminFilesController');
 const multer = require('multer');
@@ -28,6 +29,8 @@ router.get('/activos/:id/historial', requireInfrastructure, enterprise.historial
 router.post('/activos/:id/transferir', requireInfrastructure, enterprise.transferirActivo);
 router.post('/activos/:id/garantia', requireInfrastructure, adminUpload.single('garantia'), enterprise.subirGarantia);
 router.get('/activos/:id/garantia', requireInfrastructure, enterprise.descargarGarantia);
+router.post('/activos/:id/fotografias', requireInfrastructure, adminUpload.single('fotografia'), enterprise.subirFotografia);
+router.delete('/activos/:id/fotografias/:fotografiaId', requireInfrastructure, enterprise.eliminarFotografia);
 router.post('/microsoft/solicitudes', enterprise.crearSolicitudMicrosoft);
 router.get('/microsoft/solicitudes', requireManager, enterprise.listarSolicitudesMicrosoft);
 router.get('/microsoft/estado', integrations.estadoMicrosoft);
@@ -71,6 +74,10 @@ router.post('/infraestructura/inventario', requireInfrastructure, controller.gua
 router.put('/infraestructura/inventario/:id', requireInfrastructure, controller.guardarActivo);
 router.delete('/infraestructura/inventario/:id', requireInfrastructure, controller.eliminarActivo);
 router.get('/infraestructura/entregas', requireInfrastructure, controller.listarEntregas);
+router.get('/infraestructura/usuarios', requireInfrastructure, controller.listarUsuariosInfra);
 router.post('/infraestructura/entregas', requireInfrastructure, controller.guardarEntrega);
+router.put('/infraestructura/entregas/:id', requireInfrastructure, controller.modificarEntrega);
+router.post('/infraestructura/entregas/:id/evidencias', requireInfrastructure, adminUpload.single('evidencia'), deliveryEvidence.agregar);
+router.get('/infraestructura/entregas/:id/evidencias', requireInfrastructure, deliveryEvidence.listar);
 
 module.exports = router;

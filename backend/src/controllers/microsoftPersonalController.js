@@ -1,6 +1,7 @@
 const microsoft = require('../services/microsoftService');
 const { registrarEvento } = require('../services/auditService');
 const { signToken } = require('../middleware/auth');
+const crypto = require('crypto');
 
 const frontendUrl = req => {
   if (process.env.FRONTEND_URL && !/localhost|127\.0\.0\.1/.test(process.env.FRONTEND_URL)) return process.env.FRONTEND_URL.replace(/\/$/, '');
@@ -20,6 +21,14 @@ const formatUser = user => ({
   departamento_id: user.departamento_id
 });
 
+const microsoftEmails = profile => [...new Set([
+  profile.mail,
+  profile.userPrincipalName,
+  profile.preferred_username
+].filter(value => typeof value === 'string' && value.trim()).map(value => value.trim().toLowerCase()))];
+
+const microsoftDisplayName = profile => profile.displayName || [profile.givenName, profile.surname].filter(Boolean).join(' ') || profile.userPrincipalName;
+
 exports.login = async (_req, res) => {
   try { res.json({ success: true, url: await microsoft.createLoginAuthorizationUrl() }); }
   catch (error) { res.status(503).json({ success: false, message: error.message }); }
@@ -28,11 +37,27 @@ exports.login = async (_req, res) => {
 exports.loginCallback = async (req, res) => {
   try {
     const authResult = await microsoft.completeLogin(req.query.code, req.query.state);
-    const email = authResult.profile.mail || authResult.profile.userPrincipalName;
+    const emails = microsoftEmails(authResult.profile);
+    const email = emails[0];
+    if (!email) throw new Error('Microsoft no devolvió un correo electrónico válido.');
     const db = require('../config/db');
-    const { rows } = await db.query(`SELECT u.*, d.nombre AS departamento_nombre FROM usuarios u LEFT JOIN departamentos d ON d.id=u.departamento_id WHERE LOWER(u.email)=LOWER($1) AND u.activo=TRUE`, [email]);
-    if (!rows.length) throw new Error('La cuenta Microsoft no está registrada en SGTI. Solicite a IT que active su usuario.');
-    const user = rows[0];
+    let { rows } = await db.query(`SELECT u.*, d.nombre AS departamento_nombre FROM usuarios u LEFT JOIN departamentos d ON d.id=u.departamento_id WHERE LOWER(u.email) = ANY($1::text[]) AND u.activo=TRUE`, [emails]);
+    let user = rows[0];
+
+    // Microsoft es la identidad principal para el acceso SSO. Las cuentas nuevas
+    // entran como usuario final; los administradores existentes conservan su rol.
+    if (!user) {
+      const temporaryPassword = `microsoft$${crypto.randomBytes(32).toString('hex')}`;
+      const created = await db.query(`INSERT INTO usuarios (nombre,email,password,rol,departamento_id,activo)
+        VALUES ($1,$2,$3,'usuario_final',NULL,TRUE)
+        RETURNING id,nombre,email,rol,departamento_id,activo`, [microsoftDisplayName(authResult.profile), email, temporaryPassword]);
+      user = created.rows[0];
+      user.departamento_nombre = null;
+    } else if (authResult.profile.displayName && user.nombre !== authResult.profile.displayName) {
+      await db.query('UPDATE usuarios SET nombre=$1 WHERE id=$2', [authResult.profile.displayName, user.id]);
+      user.nombre = authResult.profile.displayName;
+    }
+
     await microsoft.savePersonalConnection(user.id, authResult);
     const code = require('crypto').randomBytes(32).toString('hex');
     await db.query('INSERT INTO microsoft_login_codes (code, usuario_id, expires_at) VALUES ($1,$2,NOW()+INTERVAL \'2 minutes\')', [code, user.id]);

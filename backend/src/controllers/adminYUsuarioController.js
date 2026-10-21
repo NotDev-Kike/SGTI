@@ -7,11 +7,17 @@ const consultaEntregas = `
   SELECT e.id, e.departamento_id, e.departamento_nombre, e.destinatario,
          to_char(e.fecha_entrega, 'YYYY-MM-DD') AS fecha_entrega,
          e.observaciones, e.created_at, e.entregado_por_nombre,
+         (SELECT min(ac.responsable_id) FROM entregas_infraestructura_articulos ea JOIN activos ac ON ac.id=ea.activo_id WHERE ea.entrega_id=e.id) AS responsable_id,
          COALESCE(
-           json_agg(json_build_object('id', a.id, 'articulo', a.articulo, 'cantidad', a.cantidad, 'detalles', a.detalles) ORDER BY a.id)
+           json_agg(json_build_object('id', a.id, 'activo_id', a.activo_id, 'articulo', a.articulo, 'cantidad', a.cantidad, 'detalles', a.detalles) ORDER BY a.id)
              FILTER (WHERE a.id IS NOT NULL),
            '[]'::json
-         ) AS articulos
+         ) AS articulos,
+         COALESCE(
+           (SELECT json_agg(json_build_object('id', ev.id, 'nombre_archivo', ev.nombre_archivo, 'mime_type', ev.mime_type, 'contenido', encode(ev.contenido, 'base64')) ORDER BY ev.id)
+            FROM entregas_infraestructura_evidencias ev WHERE ev.entrega_id = e.id),
+           '[]'::json
+         ) AS evidencias
   FROM entregas_infraestructura e
   LEFT JOIN entregas_infraestructura_articulos a ON a.entrega_id = e.id
 `;
@@ -509,9 +515,19 @@ exports.listarEntregas = async (_req, res) => {
   }
 };
 
+exports.listarUsuariosInfra = async (_req, res) => {
+  try {
+    const { rows } = await db.query(`SELECT id, nombre, email, departamento_id FROM usuarios WHERE activo=TRUE ORDER BY nombre`);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.guardarEntrega = async (req, res) => {
-  const { departamento_id, destinatario, fecha_entrega, observaciones, articulos } = req.body;
+  const { departamento_id, responsable_id, destinatario, fecha_entrega, observaciones, articulos } = req.body;
   const departmentId = Number(departamento_id);
+  const responsibleId = Number(responsable_id);
   const recipient = typeof destinatario === 'string' ? destinatario.trim() : '';
   const notes = typeof observaciones === 'string' ? observaciones.trim() : '';
   const deliveryDate = typeof fecha_entrega === 'string' ? fecha_entrega : '';
@@ -521,10 +537,11 @@ exports.guardarEntrega = async (req, res) => {
     && fecha.toISOString().slice(0, 10) === deliveryDate;
   const articulosValidos = Array.isArray(articulos) && articulos.length > 0 && articulos.length <= 100
     && articulos.every(item => item && typeof item.articulo === 'string' && item.articulo.trim() && item.articulo.trim().length <= 160
+      && (item.activo_id == null || (Number.isInteger(Number(item.activo_id)) && Number(item.activo_id) > 0))
       && Number.isInteger(Number(item.cantidad)) && Number(item.cantidad) > 0
       && (item.detalles == null || (typeof item.detalles === 'string' && item.detalles.length <= 1000)));
 
-  if (!Number.isInteger(departmentId) || departmentId < 1 || !recipient || recipient.length > 160
+  if (!Number.isInteger(departmentId) || departmentId < 1 || !Number.isInteger(responsibleId) || responsibleId < 1 || !recipient || recipient.length > 160
     || !fechaValida || (typeof observaciones !== 'string' && observaciones != null) || notes.length > 3000 || !articulosValidos) {
     return res.status(400).json({ success: false, message: 'Revise departamento, destinatario, fecha y artículos de la entrega.' });
   }
@@ -549,17 +566,103 @@ exports.guardarEntrega = async (req, res) => {
       [departmentId, departamentosEntrega[0].nombre, recipient, deliveryDate, notes || null, req.user.id, usuariosEntrega[0]?.nombre || req.user.email]
     );
     const entregaId = entregasCreadas[0].id;
+    const activosSolicitados = articulos.filter(articulo => articulo.activo_id != null).map(articulo => Number(articulo.activo_id));
+    if (new Set(activosSolicitados).size !== activosSolicitados.length) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: 'No puede repetir el mismo activo en una entrega.' });
+    }
+    if (activosSolicitados.length) {
+      const activosDisponibles = await client.query(`SELECT id, estado FROM activos WHERE id = ANY($1::int[]) FOR UPDATE`, [activosSolicitados]);
+      if (activosDisponibles.rows.length !== activosSolicitados.length) {
+        await client.query('ROLLBACK');
+        transactionStarted = false;
+        return res.status(400).json({ success: false, message: 'Uno de los activos seleccionados ya no existe.' });
+      }
+      const noDisponibles = activosDisponibles.rows.find(activo => activo.estado !== 'disponible');
+      if (noDisponibles) {
+        await client.query('ROLLBACK');
+        transactionStarted = false;
+        return res.status(400).json({ success: false, message: 'Uno de los activos seleccionados ya está asignado o no está disponible.' });
+      }
+    }
     for (const articulo of articulos) {
       await client.query(
-        `INSERT INTO entregas_infraestructura_articulos (entrega_id, articulo, cantidad, detalles)
-         VALUES ($1, $2, $3, $4)`,
-        [entregaId, articulo.articulo.trim(), Number(articulo.cantidad), typeof articulo.detalles === 'string' ? articulo.detalles.trim() || null : null]
+        `INSERT INTO entregas_infraestructura_articulos (entrega_id, activo_id, articulo, cantidad, detalles)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [entregaId, articulo.activo_id ? Number(articulo.activo_id) : null, articulo.articulo.trim(), Number(articulo.cantidad), typeof articulo.detalles === 'string' ? articulo.detalles.trim() || null : null]
       );
+      if (articulo.activo_id) {
+        const previous = await client.query('SELECT departamento_id, responsable_id FROM activos WHERE id = $1', [articulo.activo_id]);
+        await client.query(`UPDATE activos SET departamento_id=$1, responsable_id=$2, estado='asignado', fecha_asignacion=$3, updated_at=CURRENT_TIMESTAMP WHERE id=$4`, [departmentId, responsibleId, deliveryDate, articulo.activo_id]);
+        await client.query(`INSERT INTO activos_historial (activo_id, usuario_id, accion, departamento_anterior_id, departamento_nuevo_id, responsable_anterior_id, responsable_nuevo_id, nota) VALUES ($1,$2,'entrega',$3,$4,$5,$6,$7)`, [articulo.activo_id, req.user.id, previous.rows[0]?.departamento_id || null, departmentId, previous.rows[0]?.responsable_id || null, responsibleId, `Entregado a ${recipient}`]);
+      }
     }
     await client.query('COMMIT');
     transactionStarted = false;
     const { rows } = await db.query(`${consultaEntregas} WHERE e.id = $1 GROUP BY e.id`, [entregaId]);
     res.status(201).json({ success: true, data: rows[0] });
+  } catch (error) {
+    if (transactionStarted && client) await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (client) client.release();
+  }
+};
+
+exports.modificarEntrega = async (req, res) => {
+  const { departamento_id, responsable_id, destinatario, fecha_entrega, observaciones, articulos } = req.body;
+  const deliveryId = Number(req.params.id);
+  const departmentId = Number(departamento_id);
+  const responsibleId = Number(responsable_id);
+  const recipient = typeof destinatario === 'string' ? destinatario.trim() : '';
+  const notes = typeof observaciones === 'string' ? observaciones.trim() : '';
+  const deliveryDate = typeof fecha_entrega === 'string' ? fecha_entrega : '';
+  const fecha = new Date(`${deliveryDate}T00:00:00.000Z`);
+  const fechaValida = /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) && !Number.isNaN(fecha.getTime()) && fecha.toISOString().slice(0, 10) === deliveryDate;
+  const articulosValidos = Array.isArray(articulos) && articulos.length > 0 && articulos.length <= 100
+    && articulos.every(item => item && Number.isInteger(Number(item.activo_id)) && Number(item.activo_id) > 0
+      && typeof item.articulo === 'string' && item.articulo.trim() && item.articulo.trim().length <= 160
+      && Number(item.cantidad) === 1);
+  if (!Number.isInteger(deliveryId) || deliveryId < 1 || !Number.isInteger(departmentId) || departmentId < 1 || !Number.isInteger(responsibleId) || responsibleId < 1 || !recipient || recipient.length > 160 || !fechaValida || notes.length > 3000 || !articulosValidos) {
+    return res.status(400).json({ success: false, message: 'Revise departamento, destinatario, fecha y activos de la entrega.' });
+  }
+  const requestedIds = articulos.map(item => Number(item.activo_id));
+  if (new Set(requestedIds).size !== requestedIds.length) return res.status(400).json({ success: false, message: 'No puede repetir el mismo activo en una entrega.' });
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await db.connect();
+    await client.query('BEGIN');
+    transactionStarted = true;
+    const current = await client.query('SELECT * FROM entregas_infraestructura WHERE id=$1 FOR UPDATE', [deliveryId]);
+    if (!current.rows.length) { await client.query('ROLLBACK'); transactionStarted = false; return res.status(404).json({ success: false, message: 'Entrega no encontrada.' }); }
+    const previousArticles = await client.query('SELECT activo_id FROM entregas_infraestructura_articulos WHERE entrega_id=$1 AND activo_id IS NOT NULL', [deliveryId]);
+    const oldIds = previousArticles.rows.map(item => Number(item.activo_id));
+    const assets = await client.query('SELECT id, estado FROM activos WHERE id = ANY($1::int[]) FOR UPDATE', [requestedIds]);
+    if (assets.rows.length !== requestedIds.length) { await client.query('ROLLBACK'); transactionStarted = false; return res.status(400).json({ success: false, message: 'Uno de los activos seleccionados ya no existe.' }); }
+    const unavailable = assets.rows.find(asset => asset.estado !== 'disponible' && !oldIds.includes(Number(asset.id)));
+    if (unavailable) { await client.query('ROLLBACK'); transactionStarted = false; return res.status(400).json({ success: false, message: 'Uno de los nuevos activos ya está asignado o no está disponible.' }); }
+    const departments = await client.query('SELECT nombre FROM departamentos WHERE id=$1', [departmentId]);
+    if (!departments.rows.length) { await client.query('ROLLBACK'); transactionStarted = false; return res.status(400).json({ success: false, message: 'El departamento seleccionado no existe.' }); }
+    const removedIds = oldIds.filter(id => !requestedIds.includes(id));
+    for (const assetId of removedIds) {
+      await client.query(`UPDATE activos SET estado='disponible', departamento_id=NULL, fecha_asignacion=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [assetId]);
+      await client.query(`INSERT INTO activos_historial (activo_id, usuario_id, accion, departamento_anterior_id, departamento_nuevo_id, nota) VALUES ($1,$2,'devolución_entrega', $3, NULL, $4)`, [assetId, req.user.id, current.rows[0].departamento_id, `Retirado de la entrega #${deliveryId} durante una corrección`]);
+    }
+    await client.query(`UPDATE entregas_infraestructura SET departamento_id=$1, departamento_nombre=$2, destinatario=$3, fecha_entrega=$4, observaciones=$5 WHERE id=$6`, [departmentId, departments.rows[0].nombre, recipient, deliveryDate, notes || null, deliveryId]);
+    await client.query('DELETE FROM entregas_infraestructura_articulos WHERE entrega_id=$1', [deliveryId]);
+    for (const articulo of articulos) {
+      const assetId = Number(articulo.activo_id);
+      await client.query(`INSERT INTO entregas_infraestructura_articulos (entrega_id, activo_id, articulo, cantidad, detalles) VALUES ($1,$2,$3,1,$4)`, [deliveryId, assetId, articulo.articulo.trim(), articulo.detalles || null]);
+      const previous = await client.query('SELECT departamento_id FROM activos WHERE id=$1', [assetId]);
+      await client.query(`UPDATE activos SET departamento_id=$1, responsable_id=$2, estado='asignado', fecha_asignacion=$3, updated_at=CURRENT_TIMESTAMP WHERE id=$4`, [departmentId, responsibleId, deliveryDate, assetId]);
+      await client.query(`INSERT INTO activos_historial (activo_id, usuario_id, accion, departamento_anterior_id, departamento_nuevo_id, responsable_anterior_id, responsable_nuevo_id, nota) VALUES ($1,$2,'entrega_corregida',$3,$4,$5,$6,$7)`, [assetId, req.user.id, previous.rows[0]?.departamento_id || null, departmentId, null, responsibleId, `Entrega #${deliveryId} corregida para ${recipient}`]);
+    }
+    await client.query('COMMIT');
+    transactionStarted = false;
+    const { rows } = await db.query(`${consultaEntregas} WHERE e.id=$1 GROUP BY e.id`, [deliveryId]);
+    res.json({ success: true, data: rows[0] });
   } catch (error) {
     if (transactionStarted && client) await client.query('ROLLBACK').catch(() => {});
     res.status(500).json({ success: false, message: error.message });
@@ -851,6 +954,8 @@ exports.moverOResolverTicket = async (req, res) => {
     `;
         const { rows } = await db.query(query, [nuevo_estado, nuevo_departamento_id, titulo, descripcion, categoria, tipo_solicitud, prioridad, id, asignadoId]);
     if (!rows.length) return res.status(404).json({ success: false, message: 'Ticket no encontrado.' });
+    const responsableResult = await db.query('SELECT nombre AS asignado_nombre FROM usuarios WHERE id=$1', [rows[0].asignado_a_id]);
+    rows[0].asignado_nombre = responsableResult.rows[0]?.asignado_nombre || null;
 
     // Registrar en historial para que al resolverse desaparezca de "TODOS" activos pero quede en Auditoría
     await db.query(

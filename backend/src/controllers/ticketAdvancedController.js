@@ -242,6 +242,8 @@ exports.asignarTicket = async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Ticket no encontrado' });
     }
+    const responsable = await db.query('SELECT nombre AS asignado_nombre FROM usuarios WHERE id = $1', [rows[0].asignado_a_id]);
+    rows[0].asignado_nombre = responsable.rows[0]?.asignado_nombre || null;
 
     // Registrar en el historial
     await db.query(

@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const crypto = require('crypto');
 const { registrarEvento } = require('../services/auditService');
 const microsoft = require('../services/microsoftService');
 
@@ -38,24 +39,25 @@ exports.guardarSla = async (req, res) => {
 
 exports.listarAuditoria = async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 100, 500);
-  const { rows } = await db.query(`SELECT a.*, u.nombre AS usuario_nombre, u.email FROM auditoria_eventos a LEFT JOIN usuarios u ON u.id=a.usuario_id ORDER BY a.created_at DESC LIMIT $1`, [limit]);
+  const { rows } = await db.query(`SELECT a.*, u.nombre AS usuario_nombre, u.email FROM (SELECT DISTINCT ON (usuario_id, evento, entidad, entidad_id) * FROM auditoria_eventos ORDER BY usuario_id, evento, entidad, entidad_id, created_at DESC) a LEFT JOIN usuarios u ON u.id=a.usuario_id ORDER BY a.created_at DESC LIMIT $1`, [limit]);
   res.json({ success: true, data: rows });
 };
 
 exports.listarActivos = async (_req, res) => {
-  const { rows } = await db.query(`SELECT a.*, d.nombre AS departamento_nombre, u.nombre AS responsable_nombre FROM activos a LEFT JOIN departamentos d ON d.id=a.departamento_id LEFT JOIN usuarios u ON u.id=a.responsable_id ORDER BY a.updated_at DESC`);
+  const { rows } = await db.query(`SELECT a.id, a.codigo, a.nombre, a.tipo, a.marca, a.modelo, a.serie, a.departamento_id, a.responsable_id, a.estado, a.motivo_baja, a.fecha_compra, a.fecha_asignacion, a.fecha_baja, a.vida_util_anios, a.orden_compra, a.garantia_hasta, a.garantia_nombre, a.fotografias, a.notas, a.created_at, a.updated_at, d.nombre AS departamento_nombre, u.nombre AS responsable_nombre FROM activos a LEFT JOIN departamentos d ON d.id=a.departamento_id LEFT JOIN usuarios u ON u.id=a.responsable_id ORDER BY a.updated_at DESC`);
   res.json({ success: true, data: rows });
 };
 
 exports.guardarActivo = async (req, res) => {
   const b = req.body;
   if (!b.codigo || !b.nombre || !b.tipo) return res.status(400).json({ success: false, message: 'Código, nombre y tipo son obligatorios.' });
+  if ((b.estado || 'disponible') === 'asignado' && (!b.departamento_id || !b.responsable_id)) return res.status(400).json({ success: false, message: 'Un activo asignado debe tener departamento y responsable.' });
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const old = b.id ? await client.query('SELECT * FROM activos WHERE id=$1 FOR UPDATE', [b.id]) : { rows: [] };
     const { rows } = await client.query(`INSERT INTO activos (id,codigo,nombre,tipo,marca,modelo,serie,departamento_id,responsable_id,estado,motivo_baja,fecha_compra,fecha_asignacion,fecha_baja,vida_util_anios,orden_compra,garantia_hasta,notas)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      VALUES (COALESCE($1, (SELECT COALESCE(MAX(id), 0) + 1 FROM activos)),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       ON CONFLICT (id) DO UPDATE SET codigo=EXCLUDED.codigo,nombre=EXCLUDED.nombre,tipo=EXCLUDED.tipo,marca=EXCLUDED.marca,modelo=EXCLUDED.modelo,serie=EXCLUDED.serie,departamento_id=EXCLUDED.departamento_id,responsable_id=EXCLUDED.responsable_id,estado=EXCLUDED.estado,motivo_baja=EXCLUDED.motivo_baja,fecha_compra=EXCLUDED.fecha_compra,fecha_asignacion=EXCLUDED.fecha_asignacion,fecha_baja=EXCLUDED.fecha_baja,vida_util_anios=EXCLUDED.vida_util_anios,orden_compra=EXCLUDED.orden_compra,garantia_hasta=EXCLUDED.garantia_hasta,notas=EXCLUDED.notas,updated_at=CURRENT_TIMESTAMP RETURNING *`, [b.id || null,b.codigo.trim(),b.nombre.trim(),b.tipo,b.marca||null,b.modelo||null,b.serie||null,b.departamento_id||null,b.responsable_id||null,b.estado||'disponible',b.motivo_baja||null,b.fecha_compra||null,b.fecha_asignacion||null,b.fecha_baja||null,b.vida_util_anios||null,b.orden_compra||null,b.garantia_hasta||null,b.notas||null]);
     const current = rows[0];
     await client.query(`INSERT INTO activos_historial (activo_id,usuario_id,accion,departamento_anterior_id,departamento_nuevo_id,responsable_anterior_id,responsable_nuevo_id,nota) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [current.id,req.user.id,b.id ? 'actualización' : 'alta',old.rows[0]?.departamento_id||null,current.departamento_id,old.rows[0]?.responsable_id||null,current.responsable_id,b.nota||b.motivo_baja||null]);
@@ -79,9 +81,32 @@ exports.transferirActivo = async (req, res) => {
     res.json({ success: true, message: 'Transferencia registrada.' });
   } catch (error) { await client.query('ROLLBACK'); res.status(400).json({ success: false, message: error.message }); } finally { client.release(); }
 };
-exports.subirGarantia = async (req, res) => { if (!req.file) return res.status(400).json({ success: false, message: 'Adjunte el archivo de garantía.' }); const { rows } = await db.query('UPDATE activos SET garantia_archivo=$1, garantia_nombre=$2, updated_at=CURRENT_TIMESTAMP WHERE id=$3 RETURNING id, garantia_nombre', [req.file.buffer, req.file.originalname, req.params.id]); if (!rows.length) return res.status(404).json({ success: false, message: 'Activo no encontrado.' }); res.json({ success: true, data: rows[0] }); };
-exports.descargarGarantia = async (req, res) => { const { rows } = await db.query('SELECT garantia_archivo, garantia_nombre FROM activos WHERE id=$1', [req.params.id]); if (!rows.length || !rows[0].garantia_archivo) return res.status(404).end(); res.set('Content-Disposition', `attachment; filename="${String(rows[0].garantia_nombre || 'garantia').replace(/"/g, '')}"`).send(rows[0].garantia_archivo); };
+exports.subirGarantia = async (req, res) => { if (!req.file) return res.status(400).json({ success: false, message: 'Adjunte el archivo de garantía.' }); const { rows } = await db.query('UPDATE activos SET garantia_archivo=$1, garantia_nombre=$2, updated_at=CURRENT_TIMESTAMP WHERE id=$3 RETURNING id, garantia_nombre', [req.file.buffer, req.file.originalname, req.params.id]); if (!rows.length) return res.status(404).json({ success: false, message: 'Activo no encontrado.' }); await db.query('INSERT INTO activos_historial (activo_id,usuario_id,accion,nota) VALUES ($1,$2,$3,$4)', [req.params.id, req.user.id, 'garantia_adjunta', req.file.originalname]); res.json({ success: true, data: rows[0] }); };
+exports.descargarGarantia = async (req, res) => { const { rows } = await db.query('SELECT garantia_archivo, garantia_nombre FROM activos WHERE id=$1', [req.params.id]); if (!rows.length || !rows[0].garantia_archivo) return res.status(404).json({ success: false, message: 'El activo no tiene una garantía adjunta.' }); const nombre = String(rows[0].garantia_nombre || 'garantia').replace(/"/g, ''); const extension = nombre.split('.').pop().toLowerCase(); const tipos = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }; res.type(tipos[extension] || 'application/octet-stream').set('Content-Disposition', `${req.query.inline === 'true' ? 'inline' : 'attachment'}; filename="${nombre}"`).send(rows[0].garantia_archivo); };
+exports.subirFotografia = async (req, res) => {
+  if (!req.file || !String(req.file.mimetype || '').startsWith('image/')) return res.status(400).json({ success: false, message: 'Adjunte una imagen válida.' });
+  if (req.file.size > 8 * 1024 * 1024) return res.status(400).json({ success: false, message: 'La fotografía no puede superar 8 MB.' });
+  const { rows } = await db.query('SELECT fotografias FROM activos WHERE id=$1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ success: false, message: 'Activo no encontrado.' });
+  const fotografias = Array.isArray(rows[0].fotografias) ? rows[0].fotografias : [];
+  if (fotografias.length >= 12) return res.status(400).json({ success: false, message: 'Un activo puede tener hasta 12 fotografías.' });
+  const fotografia = { id: crypto.randomUUID(), nombre: req.file.originalname, mime_type: req.file.mimetype, contenido: req.file.buffer.toString('base64'), created_at: new Date().toISOString() };
+  fotografias.push(fotografia);
+  await db.query('UPDATE activos SET fotografias=$1::jsonb, updated_at=CURRENT_TIMESTAMP WHERE id=$2', [JSON.stringify(fotografias), req.params.id]);
+  await db.query('INSERT INTO activos_historial (activo_id,usuario_id,accion,nota) VALUES ($1,$2,$3,$4)', [req.params.id, req.user.id, 'fotografia_agregada', req.file.originalname]);
+  res.status(201).json({ success: true, data: fotografia });
+};
+exports.eliminarFotografia = async (req, res) => {
+  const { rows } = await db.query('SELECT fotografias FROM activos WHERE id=$1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ success: false, message: 'Activo no encontrado.' });
+  const fotografias = Array.isArray(rows[0].fotografias) ? rows[0].fotografias : [];
+  const restantes = fotografias.filter(fotografia => fotografia.id !== req.params.fotografiaId);
+  if (restantes.length === fotografias.length) return res.status(404).json({ success: false, message: 'Fotografía no encontrada.' });
+  await db.query('UPDATE activos SET fotografias=$1::jsonb, updated_at=CURRENT_TIMESTAMP WHERE id=$2', [JSON.stringify(restantes), req.params.id]);
+  await db.query('INSERT INTO activos_historial (activo_id,usuario_id,accion,nota) VALUES ($1,$2,$3,$4)', [req.params.id, req.user.id, 'fotografia_eliminada', req.params.fotografiaId]);
+  res.json({ success: true });
+};
 
 exports.crearSolicitudMicrosoft = async (req, res) => { const b=req.body; if(!b.nombre) return res.status(400).json({success:false,message:'El nombre es obligatorio.'}); const {rows}=await db.query(`INSERT INTO solicitudes_microsoft (solicitado_por_id,tipo,nombre,correo_solicitado,departamento,detalle) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[req.user.id,b.tipo||'crear_usuario',b.nombre,b.correo_solicitado||null,b.departamento||null,b.detalle||null]); await registrarEvento({req,evento:'microsoft.solicitud_creada',entidad:'solicitud_microsoft',entidadId:rows[0].id}); const managers = await db.query("SELECT email FROM usuarios WHERE rol='gerente_it' AND activo=TRUE"); managers.rows.forEach(manager => microsoft.notifyTicket(rows[0], manager.email, 'Solicitud de creación de usuario Microsoft', `<p>Se solicitó crear la cuenta Microsoft de <strong>${String(b.nombre).replace(/[<>]/g, '')}</strong>.</p>`).catch(error => console.error('Aviso de solicitud Microsoft:', error.message))); res.status(201).json({success:true,data:rows[0]}); };
 exports.listarSolicitudesMicrosoft = async (_req,res) => { const {rows}=await db.query(`SELECT s.*, u.nombre AS solicitante_nombre FROM solicitudes_microsoft s LEFT JOIN usuarios u ON u.id=s.solicitado_por_id ORDER BY s.created_at DESC`); res.json({success:true,data:rows}); };
-exports.listarSesiones = async (_req,res) => { const {rows}=await db.query(`SELECT s.*,u.nombre,u.email FROM sesiones_usuario s JOIN usuarios u ON u.id=s.usuario_id WHERE s.conectado=TRUE ORDER BY s.ultima_actividad DESC`); res.json({success:true,data:rows}); };
+exports.listarSesiones = async (_req,res) => { const {rows}=await db.query(`SELECT DISTINCT ON (s.usuario_id) s.*,u.nombre,u.email FROM sesiones_usuario s JOIN usuarios u ON u.id=s.usuario_id WHERE s.conectado=TRUE ORDER BY s.usuario_id, s.ultima_actividad DESC`); res.json({success:true,data:rows}); };

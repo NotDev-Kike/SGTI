@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import Login from './Login';
-import ApiReference from './ApiReference';
 import ArchivedUsers from './ArchivedUsers';
 import { EvidenceGallery, EvidencePicker } from './EvidenceImages';
 import RemoteAssistance from './RemoteAssistance';
 import EnterpriseConsole from './EnterpriseConsole';
+import AdminApiReference from './AdminApiReference';
+import InfrastructureConsole from './InfrastructureConsole';
 import { apiFetch, getApiBaseUrl } from '../api';
 
 const API_BASE_URL = getApiBaseUrl();
@@ -98,6 +99,9 @@ const etiquetaEstadoTicket = estado => ({
   nuevo: 'Nuevo', abierto: 'Abierto', en_proceso: 'En proceso', resuelto: 'Resuelto', vencido: 'Vencido'
 }[estado] || estado || 'Sin estado');
 
+const etiquetaPrioridad = prioridad => ({ critica: 'Crítica', alta: 'Alta', media: 'Media', baja: 'Baja' }[String(prioridad || '').toLowerCase()] || 'Media');
+const etiquetaCategoria = categoria => ({ hardware: 'Hardware', software: 'Software', redes: 'Redes', gps: 'GPS / Rutas' }[String(categoria || '').toLowerCase()] || categoria || 'Solicitud');
+
 const etiquetaTipoTicket = tipo => ({
   incidencia: 'Incidencia', problema: 'Problema', peticion_servicio: 'Petición de servicio',
   peticion_cambio: 'Petición de cambio', chat: 'Comunicación por chat'
@@ -110,13 +114,6 @@ export default function App() {
     const user = saved ? JSON.parse(saved) : null;
     return user?.token ? user : null;
   });
-  const [modoOscuro, setModoOscuro] = useState(() => localStorage.getItem('sgti_modo_oscuro') !== 'false');
-
-  useEffect(() => {
-    localStorage.setItem('sgti_modo_oscuro', String(modoOscuro));
-    document.documentElement.classList.toggle('dark', modoOscuro);
-  }, [modoOscuro]);
-
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [seccionesAbiertas, setSeccionesAbiertas] = useState({
@@ -417,6 +414,7 @@ export default function App() {
       body: JSON.stringify(payload)
     }).then(res => res.json()).then(data => {
       if (!data.success) throw new Error(data.message || 'No se pudo actualizar el ticket.');
+      if (data.data) setTicketSeleccionado(current => current?.id === ticket.id ? { ...current, ...data.data } : current);
       cargarDatosGlobales();
     }).catch(error => mostrarAviso(error.message, 'error'));
   };
@@ -628,7 +626,7 @@ export default function App() {
   const etiquetasSeccion = {
     dashboard: 'Inicio', crear_ticket: 'Crear solicitud', todos_tickets: 'Bandeja de tickets', asignaciones: 'Asignación de tickets',
     historial: 'Historial', usuarios: 'Gestión de usuarios', usuarios_archivo: 'Archivo de usuarios', categorias: 'Gestión de categorías', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
-    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', apis: 'Referencia de API', mis_tickets: 'Mis solicitudes', inventario: 'Inventario por departamento', entregas: 'Entrega de artículos', empresa: 'Operación empresarial', solicitud_microsoft: 'Mi Microsoft'
+    configuracion: 'Configuración', chat: 'Mensajes con IT', encuesta: 'Encuesta de satisfacción', api_reference: 'Referencia de API', mis_tickets: 'Mis solicitudes', inventario: 'Inventario por departamento', entregas: 'Entrega de artículos', empresa: 'Infraestructura', solicitud_microsoft: 'Mi Microsoft'
   };
   const estilosGrupoNav = {
     principal: { fondo: 'bg-slate-50', titulo: 'text-slate-700', activo: 'border-slate-500 bg-slate-100 text-slate-900' },
@@ -698,10 +696,8 @@ export default function App() {
   const dashboardSecciones = [
     { id: 'esperando', titulo: 'Esperando atención', cantidad: ticketsEsperandoAtencion.length, tipo: 'tickets', datos: ticketsEsperandoAtencion },
     { id: 'asignados', titulo: 'Asignados a mí', cantidad: ticketsAsignados.length, tipo: 'tickets', datos: ticketsAsignados },
-    { id: 'aprobados', titulo: 'Aprobados por Gerencia', cantidad: 0, tipo: 'pendiente' },
     { id: 'tareas', titulo: 'Mis tareas', cantidad: tareasPendientesUsuario.length, tipo: 'tareas', datos: tareasPendientesUsuario },
-    ...(currentUser?.rol === 'gerente_it' ? [{ id: 'sin_asignar', titulo: 'Sin asignar', cantidad: ticketsSinAsignar.length, tipo: 'tickets', datos: ticketsSinAsignar }] : []),
-    { id: 'colaboraciones', titulo: 'Colaboraciones', cantidad: 0, tipo: 'pendiente' }
+    ...(currentUser?.rol === 'gerente_it' ? [{ id: 'sin_asignar', titulo: 'Sin asignar', cantidad: ticketsSinAsignar.length, tipo: 'tickets', datos: ticketsSinAsignar }] : [])
   ];
   const seccionDashboardActiva = dashboardSecciones.find(seccion => seccion.id === dashboardBandeja) || dashboardSecciones[0];
   const accionesPendientes = [
@@ -732,23 +728,17 @@ export default function App() {
   }
 
   return (
-    <div className={`sgti-app min-h-screen bg-slate-50 flex font-sans text-slate-800 ${modoOscuro ? 'sgti-dark' : ''}`}>
+    <div className="sgti-app min-h-screen bg-slate-50 flex font-sans text-slate-800">
       
       {/* BARRA LATERAL DINÁMICA */}
-      <aside id="sgti-sidebar" className={`fixed inset-y-0 left-0 z-50 w-64 bg-white text-slate-600 border-r border-slate-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col`}>
+      <aside id="sgti-sidebar" className={`fixed inset-y-0 left-0 z-50 w-64 bg-white text-slate-600 border-r border-slate-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 ${sidebarCollapsed ? 'sgti-sidebar-collapsed' : ''} transition-transform duration-300 ease-in-out flex flex-col`}>
         <div className="p-5 border-b border-slate-100 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-extrabold text-slate-900">SGTI</h2>
             <p className="text-xs text-blue-700 font-semibold">{currentUser.area}</p>
           </div>
           <div className="flex items-center gap-2">
-            {currentUser.isAdmin && <button
-              type="button"
-              onClick={() => { setActiveTab('apis'); setSidebarOpen(false); }}
-              className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition ${activeTab === 'apis' ? 'border-blue-700 bg-blue-700 text-white' : 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'}`}
-            >
-              Referencia de API
-            </button>}
+            <button type="button" onClick={() => setSidebarCollapsed(value => !value)} className="sgti-sidebar-toggle hidden rounded-md px-2 py-1 text-lg text-slate-600 hover:bg-slate-100 md:block" aria-label={sidebarCollapsed ? 'Expandir menú' : 'Contraer menú'}>{sidebarCollapsed ? '›' : '‹'}</button>
             <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">✕</button>
           </div>
         </div>
@@ -759,12 +749,14 @@ export default function App() {
             <div id="nav-section-principal" aria-labelledby="nav-heading-principal">
             <button
               onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
+              data-icon="◉"
               className={claseNav('dashboard', 'principal')}
             >
               Dashboard
             </button>
             <button
               onClick={() => { setActiveTab('chat'); setSidebarOpen(false); }}
+              data-icon="▣"
               className={claseNav('chat', 'principal')}
             >
               Mensajes con IT{mensajesPendientes > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{mensajesPendientes}</span>}
@@ -779,24 +771,28 @@ export default function App() {
               <>
               <button
                 onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
+                data-icon="＋"
                 className={claseNav('crear_ticket', 'tickets')}
               >
                 Crear ticket
               </button>
               <button 
                 onClick={() => { setActiveTab('todos_tickets'); setSidebarOpen(false); }}
+                data-icon="▤"
                 className={claseNav('todos_tickets', 'tickets')}
               >
                 Bandeja de tickets ({tickets.length}){ticketsAsignados.length > 0 && <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-slate-900">{ticketsAsignados.length}</span>}
               </button>
                     {currentUser.rol === 'gerente_it' && <button
                 onClick={() => { setActiveTab('asignaciones'); setSidebarOpen(false); }}
+                data-icon="⇄"
                 className={claseNav('asignaciones', 'tickets')}
               >
                 Asignación de tickets
               </button>}
               <button 
                 onClick={() => { setActiveTab('historial'); setSidebarOpen(false); }}
+                data-icon="↺"
                 className={claseNav('historial', 'tickets')}
               >
                 Historial de tickets
@@ -806,18 +802,21 @@ export default function App() {
               <>
                 <button
                   onClick={() => { setActiveTab('crear_ticket'); setSidebarOpen(false); }}
+                  data-icon="＋"
                   className={claseNav('crear_ticket', 'tickets')}
                 >
                   Crear ticket
                 </button>
                 <button
                   onClick={() => { setActiveTab('mis_tickets'); setSidebarOpen(false); }}
+                  data-icon="▤"
                   className={claseNav('mis_tickets', 'tickets')}
                 >
                   Mis solicitudes
                 </button>
                 <button
                   onClick={() => { setActiveTab('encuesta'); setSidebarOpen(false); }}
+                  data-icon="✓"
                   className={claseNav('encuesta', 'tickets')}
                 >
                   Encuesta de satisfacción
@@ -832,27 +831,31 @@ export default function App() {
             <div id="nav-section-administracion" aria-labelledby="nav-heading-administracion">
               <button
                 onClick={() => { setActiveTab('usuarios'); setSidebarOpen(false); }}
+                data-icon="♟"
                 className={claseNav('usuarios', 'administracion')}
               >
                 Gestión de usuarios
               </button>
               <button
                 onClick={() => { setActiveTab('usuarios_archivo'); setSidebarOpen(false); }}
+                data-icon="▧"
                 className={claseNav('usuarios_archivo', 'administracion')}
               >
                 Archivo de usuarios
               </button>
               <button
                 onClick={() => { setActiveTab('categorias'); setSidebarOpen(false); }}
+                data-icon="◫"
                 className={claseNav('categorias', 'administracion')}
               >
                 Gestión de categorías
               </button>
               <button
                 onClick={() => { setActiveTab('configuracion'); setSidebarOpen(false); }}
+                data-icon="⚙"
                 className={claseNav('configuracion', 'administracion')}
               >Configuración</button>
-              <button onClick={() => { setActiveTab('empresa'); setSidebarOpen(false); }} className={claseNav('empresa', 'administracion')}>SLA, auditoría y archivos</button>
+              {currentUser.rol === 'gerente_it' && <button onClick={() => { setActiveTab('empresa'); setSidebarOpen(false); }} data-icon="▦" className={claseNav('empresa', 'administracion')}>SLA, auditoría y archivos</button>}
             </div>
           </section>}
 
@@ -861,18 +864,21 @@ export default function App() {
             <div id="nav-section-planificacion" aria-labelledby="nav-heading-planificacion">
               <button 
                 onClick={() => { setActiveTab('calendario'); setSidebarOpen(false); }}
+                data-icon="□"
                 className={claseNav('calendario', 'planificacion')}
               >
                 Calendario
               </button>
               <button 
                 onClick={() => { setActiveTab('tareas'); setSidebarOpen(false); }}
+                data-icon="✓"
                 className={claseNav('tareas', 'planificacion')}
               >
                 Tareas
               </button>
               {currentUser.isAdmin && <button
                 onClick={() => { setActiveTab('proyectos'); setSidebarOpen(false); }}
+                data-icon="▦"
                 className={claseNav('proyectos', 'planificacion')}
               >Proyectos de IT</button>}
             </div>
@@ -881,15 +887,7 @@ export default function App() {
           {currentUser.rol === 'admin_infra' && <section className="sgti-nav-card mb-3 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
             {tituloNav('Infraestructura', 'infraestructura')}
             <div id="nav-section-infraestructura" aria-labelledby="nav-heading-infraestructura">
-              <button
-                onClick={() => { setActiveTab('inventario'); setSidebarOpen(false); }}
-                className={claseNav('inventario', 'infraestructura')}
-              >Inventario por departamento</button>
-              <button
-                onClick={() => { setActiveTab('entregas'); setSidebarOpen(false); }}
-                className={claseNav('entregas', 'infraestructura')}
-              >Entrega de artículos</button>
-              <button onClick={() => { setActiveTab('empresa'); setSidebarOpen(false); }} className={claseNav('empresa', 'infraestructura')}>Activos y ciclo de vida</button>
+              <button onClick={() => { setActiveTab('empresa'); setSidebarOpen(false); }} data-icon="▦" className={claseNav('empresa', 'infraestructura')}>Infraestructura</button>
             </div>
           </section>}
 
@@ -908,7 +906,7 @@ export default function App() {
       </aside>
 
       {/* CONTENIDO PRINCIPAL */}
-      <div className="flex min-w-0 flex-1 flex-col md:ml-64">
+      <div className={`flex min-w-0 flex-1 flex-col ${sidebarCollapsed ? 'md:ml-[88px]' : 'md:ml-64'} transition-[margin] duration-300`}>
         <header className="bg-white border-b border-slate-200 min-h-16 flex items-center gap-3 px-4 sm:px-6 py-3 sticky top-0 z-40">
           <button
             type="button"
@@ -922,10 +920,8 @@ export default function App() {
           <div className="min-w-0 flex-1 text-sm font-bold text-slate-700">{etiquetasSeccion[activeTab] || 'Inicio'}</div>
           {(activeTab === 'todos_tickets' || activeTab === 'mis_tickets' || activeTab === 'historial' || activeTab === 'asignaciones') && <input type="search" aria-label="Buscar tickets" placeholder="Buscar ticket..." value={busqueda} onChange={event => setBusqueda(event.target.value)} className="hidden w-64 px-3 py-2 border border-slate-300 rounded text-sm lg:block" />}
           {!currentUser.isAdmin && <button type="button" onClick={irAMicrosoft} className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition ${activeTab === 'solicitud_microsoft' ? 'border-violet-700 bg-violet-700 text-white' : 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100'}`}>Mi Microsoft</button>}
+          {currentUser.isAdmin && <button type="button" onClick={() => setActiveTab('api_reference')} className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition ${activeTab === 'api_reference' ? 'border-blue-700 bg-blue-700 text-white' : 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'}`}>Referencia API</button>}
           <div className="hidden shrink-0 text-xs bg-slate-100 px-3 py-1 rounded-full font-semibold border sm:block">{currentUser.area}</div>
-          <button type="button" onClick={() => setModoOscuro(value => !value)} className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100" aria-label="Cambiar modo de color">
-            {modoOscuro ? '☀️ Claro' : '🌙 Oscuro'}
-          </button>
         </header>
 
         <main className={`p-6 flex-1 w-full mx-auto space-y-6 ${currentUser.isAdmin ? 'max-w-screen-2xl' : sidebarCollapsed ? 'max-w-7xl' : 'max-w-5xl'}`}>
@@ -933,7 +929,7 @@ export default function App() {
           {/* DASHBOARD GENERAL */}
           {activeTab === 'dashboard' && (
             <div className="space-y-5">
-              <div className="bg-white p-5 sm:p-6 rounded-lg border border-slate-200">
+              <div className="dashboard-welcome bg-white p-5 sm:p-6 rounded-lg border border-slate-200">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold text-slate-500">ESPACIO DE TRABAJO · SGTI</p>
@@ -965,7 +961,7 @@ export default function App() {
               {currentUser.isAdmin ? (
                 <>
                 <section className="space-y-4">
-                  <section className={`overflow-hidden rounded-lg border ${solicitudesRemotasPendientes.length ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                  <section className={`dashboard-remote-assistance overflow-hidden rounded-lg border ${solicitudesRemotasPendientes.length ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
                     <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -1022,23 +1018,36 @@ export default function App() {
                       })}
                     </div>}
                   </section>
-                  <div className="flex flex-wrap gap-2" aria-label="Bandejas del administrador">
+                  <div className="dashboard-tabs flex flex-wrap gap-2" aria-label="Bandejas del administrador">
                     {dashboardSecciones.map(seccion => <button key={seccion.id} type="button" aria-pressed={dashboardBandeja === seccion.id} onClick={() => setDashboardBandeja(seccion.id)} className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${dashboardBandeja === seccion.id ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}>
                       {seccion.titulo} <span className={`ml-1 rounded-full px-1.5 py-0.5 ${dashboardBandeja === seccion.id ? 'bg-white/20' : 'bg-slate-100'}`}>{seccion.cantidad}</span>
                     </button>)}
                   </div>
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
                     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                      <div className="border-b border-slate-200 px-4 py-3">
-                        <h2 className="font-bold text-slate-900">{seccionDashboardActiva.titulo}</h2>
-                        <p className="mt-1 text-xs text-slate-500">Vista personal de la carga de trabajo y solicitudes pendientes.</p>
+                      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                        <div>
+                          <h2 className="font-bold text-slate-900">{seccionDashboardActiva.titulo}</h2>
+                          <p className="mt-1 text-xs text-slate-500">Solicitudes organizadas para una atención rápida.</p>
+                        </div>
+                        <button type="button" onClick={() => setActiveTab('todos_tickets')} className="hidden rounded border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:block">Ver bandeja</button>
                       </div>
-                      {seccionDashboardActiva.tipo === 'tickets' && <div className="divide-y divide-slate-100">
-                        {seccionDashboardActiva.datos.map(ticket => <button key={ticket.id} onClick={() => abrirDetalleTicket(ticket)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
-                          <span className="min-w-0"><span className="block text-xs text-slate-500">#{ticket.id} · {ticket.creador_nombre || 'Solicitante'} · {ticket.departamento_nombre || 'Sin área'}</span><strong className="block truncate text-sm text-slate-800">{ticket.titulo}</strong></span>
-                          <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{etiquetaEstadoTicket(ticket.estado)}</span>
-                        </button>)}
-                        {!seccionDashboardActiva.datos.length && <p className="px-4 py-8 text-center text-sm text-slate-500">No hay tickets en esta bandeja.</p>}
+                      {seccionDashboardActiva.tipo === 'tickets' && <div className="grid gap-3 bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {seccionDashboardActiva.datos.map(ticket => {
+                          const prioridad = String(ticket.prioridad || 'media').toLowerCase();
+                          const prioridadClass = prioridad === 'critica' || prioridad === 'alta' ? 'text-red-600' : prioridad === 'baja' ? 'text-emerald-600' : 'text-amber-600';
+                          return <button key={ticket.id} onClick={() => abrirDetalleTicket(ticket)} className="group min-h-[190px] rounded-md border border-slate-200 border-t-4 border-t-blue-500 bg-white p-3 text-left shadow-sm hover:-translate-y-0.5 hover:shadow-md">
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="rounded bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700">{ticket.asignado_a_id ? 'Agente' : 'Nuevo'}</span>
+                              <span className={`text-xs font-bold ${prioridadClass}`}>{etiquetaPrioridad(prioridad)}</span>
+                            </div>
+                            <strong className="mt-3 block line-clamp-2 min-h-[2.75rem] text-sm leading-5 text-slate-800">{ticket.titulo}</strong>
+                            <span className="mt-2 block truncate text-xs text-slate-500">{ticket.departamento_nombre || 'Soporte IT'} · {etiquetaCategoria(ticket.categoria)}</span>
+                            <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400"><span className="h-1.5 flex-1 rounded-full bg-emerald-400" /><span className="h-1.5 w-12 rounded-full bg-slate-200" /><span>{etiquetaEstadoTicket(ticket.estado)}</span></div>
+                            <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2"><span className="flex min-w-0 items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{String(ticket.creador_nombre || ticket.nombre_solicitante || 'S').slice(0, 2).toUpperCase()}</span><span className="truncate text-xs text-slate-600">{ticket.creador_nombre || ticket.nombre_solicitante || 'Solicitante'}</span></span><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">#{ticket.id}</span></div>
+                          </button>;
+                        })}
+                        {!seccionDashboardActiva.datos.length && <p className="col-span-full px-4 py-10 text-center text-sm text-slate-500">No hay tickets en esta bandeja.</p>}
                       </div>}
                       {seccionDashboardActiva.tipo === 'tareas' && <div className="divide-y divide-slate-100">
                         {seccionDashboardActiva.datos.map(tarea => <button key={tarea.id} onClick={() => setActiveTab('tareas')} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
@@ -1047,11 +1056,6 @@ export default function App() {
                         </button>)}
                         {!seccionDashboardActiva.datos.length && <p className="px-4 py-8 text-center text-sm text-slate-500">No tiene tareas pendientes.</p>}
                       </div>}
-                      {seccionDashboardActiva.tipo === 'pendiente' && <p className="px-4 py-8 text-sm leading-6 text-slate-600">
-                        {seccionDashboardActiva.id === 'aprobados'
-                          ? 'El flujo de aprobación por Gerencia aún no está configurado. Esta bandeja queda identificada para cuando se habilite.'
-                          : 'El flujo de colaboraciones entre áreas aún no está configurado. Esta bandeja queda identificada para cuando se habilite.'}
-                      </p>}
                     </section>
                     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                       <div className="border-b border-slate-200 px-4 py-3">
@@ -1641,6 +1645,8 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'api_reference' && currentUser.isAdmin && <AdminApiReference />}
+
           {activeTab === 'inventario' && currentUser.rol === 'admin_infra' && (
             <section className="space-y-4">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1883,8 +1889,8 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'apis' && currentUser.isAdmin && <ApiReference />}
-          {activeTab === 'empresa' && currentUser.isAdmin && <EnterpriseConsole apiBaseUrl={API_BASE_URL} currentUser={currentUser} departamentos={departamentos} mode={currentUser.rol === 'admin_infra' ? 'infra' : 'admin'} />}
+          {activeTab === 'empresa' && currentUser.rol === 'admin_infra' && <InfrastructureConsole apiBaseUrl={API_BASE_URL} currentUser={currentUser} departamentos={departamentos} />}
+          {activeTab === 'empresa' && currentUser.rol === 'gerente_it' && <EnterpriseConsole apiBaseUrl={API_BASE_URL} currentUser={currentUser} departamentos={departamentos} mode="admin" />}
           {activeTab === 'solicitud_microsoft' && !currentUser.isAdmin && <EnterpriseConsole apiBaseUrl={API_BASE_URL} currentUser={currentUser} departamentos={departamentos} mode="request" />}
 
         </main>

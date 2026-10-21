@@ -11,7 +11,9 @@ if (!connectionString) {
 
 const migrationPaths = [
   path.join(__dirname, '..', 'migrations', '003_helpdesk_catalog_inventory.sql'),
-  path.join(__dirname, '..', 'migrations', '004_infrastructure_deliveries.sql')
+  path.join(__dirname, '..', 'migrations', '004_infrastructure_deliveries.sql'),
+  path.join(__dirname, '..', 'migrations', '012_delivery_evidence.sql'),
+  path.join(__dirname, '..', 'migrations', '013_delivery_asset_links.sql')
 ];
 const migrationSql = migrationPaths.map(migrationPath => fs.readFileSync(migrationPath, 'utf8')).join('\n');
 const client = new Client({ connectionString });
