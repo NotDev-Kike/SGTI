@@ -16,6 +16,9 @@ router.post('/tareas', controller.guardarTarea);
 router.delete('/tareas/:id', controller.eliminarTarea);
 router.get('/calendario', controller.listarCalendario);
 
+// Los usuarios autenticados pueden solicitar acceso mediante su correo Microsoft.
+router.post('/microsoft/solicitudes', enterprise.crearSolicitudMicrosoft);
+
 router.use(requireAdmin);
 
 router.get('/sla', requireManager, enterprise.listarSla);
@@ -31,8 +34,8 @@ router.post('/activos/:id/garantia', requireInfrastructure, adminUpload.single('
 router.get('/activos/:id/garantia', requireInfrastructure, enterprise.descargarGarantia);
 router.post('/activos/:id/fotografias', requireInfrastructure, adminUpload.single('fotografia'), enterprise.subirFotografia);
 router.delete('/activos/:id/fotografias/:fotografiaId', requireInfrastructure, enterprise.eliminarFotografia);
-router.post('/microsoft/solicitudes', enterprise.crearSolicitudMicrosoft);
 router.get('/microsoft/solicitudes', requireManager, enterprise.listarSolicitudesMicrosoft);
+router.patch('/microsoft/solicitudes/:id', requireManager, enterprise.actualizarSolicitudMicrosoft);
 router.get('/microsoft/estado', integrations.estadoMicrosoft);
 router.post('/microsoft/eventos', integrations.crearEventoMicrosoft);
 router.get('/microsoft/eventos', integrations.listarEventosMicrosoft);

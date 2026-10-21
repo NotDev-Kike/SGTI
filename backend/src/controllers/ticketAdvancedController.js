@@ -3,6 +3,7 @@ const { guardarImagenesEvidencia } = require('../services/evidenceImageService')
 const { assignTicket } = require('./enterpriseController');
 const microsoft = require('../services/microsoftService');
 const { enviarAvisoTicket } = require('../services/emailService');
+const { puedeAccederTicket, rolesParaDepartamento } = require('../services/ticketAccessService');
 
 exports.listarCategorias = async (_req, res) => {
   try {
@@ -21,9 +22,11 @@ const historialPublicoSql = `
         ELSE 'Actualización'
       END,
       'mensaje', SUBSTRING(h.accion FROM '^[^:]+: (.*)$'),
+      'usuario_nombre', COALESCE(u.nombre, 'Administrador'),
       'fecha_hora', to_char(h.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
     ) ORDER BY h.created_at ASC)
     FROM ticket_historial h
+    LEFT JOIN usuarios u ON u.id = h.usuario_id
     WHERE h.ticket_id = t.id
       AND (h.accion LIKE 'Seguimiento: %' OR h.accion LIKE 'Bloqueo externo: %' OR h.accion LIKE 'Resolución: %')
   ), '[]'::json) AS actualizaciones
@@ -48,7 +51,9 @@ exports.listarTickets = async (req, res) => {
       LEFT JOIN usuarios u_asig ON t.asignado_a_id = u_asig.id
       WHERE t.estado <> 'resuelto'
         AND ($1::boolean OR t.usuario_creador_id = $2)
-      ORDER BY t.created_at DESC;
+      ORDER BY CASE WHEN t.estado = 'nuevo' THEN 0 ELSE 1 END,
+               t.created_at DESC,
+               t.id DESC;
     `;
     const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
     const { rows } = await db.query(query, [adminRoles.includes(req.user.rol), req.user.id]);
@@ -61,7 +66,7 @@ exports.listarTickets = async (req, res) => {
 
 // 2. Crear un Ticket y registrar el evento en el historial
 exports.crearTicket = async (req, res) => {
-  const { titulo, descripcion, departamento_destino_id, categoria, tipo_solicitud, prioridad, fecha_limite } = req.body;
+  const { titulo, descripcion, departamento_destino_id, categoria, tipo_solicitud, prioridad, fecha_limite, asignado_a_id } = req.body;
   const usuario_creador_id = req.user.id;
 
   if (!titulo?.trim() || !descripcion?.trim() || !departamento_destino_id) {
@@ -97,7 +102,26 @@ exports.crearTicket = async (req, res) => {
     const sla = slaResult.rows[0];
     const fechaLimiteSla = sla ? new Date(Date.now() + Number(sla.horas_resolucion) * 3600000) : fechaLimite;
     const fechaRespuestaSla = sla ? new Date(Date.now() + Number(sla.horas_respuesta) * 3600000) : null;
-    const responsable = await assignTicket(client, ticketCreado.id, ticketCreado.categoria, departamento_destino_id);
+    let responsable = null;
+    if (asignado_a_id !== undefined && asignado_a_id !== null && asignado_a_id !== '') {
+      const departamentoResult = await client.query('SELECT nombre FROM departamentos WHERE id=$1', [Number(departamento_destino_id)]);
+      const rolesDepartamento = rolesParaDepartamento(departamentoResult.rows[0]?.nombre);
+      const administrador = await client.query(`
+        SELECT id FROM usuarios
+        WHERE id = $1 AND activo = TRUE
+          AND rol = ANY($3::text[])
+          AND (departamento_id = $2 OR rol = ANY($4::text[]))
+      `, [Number(asignado_a_id), Number(departamento_destino_id), ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'], rolesDepartamento]);
+      if (!administrador.rowCount) {
+        const error = new Error('El administrador seleccionado no pertenece al área elegida o no está activo.');
+        error.statusCode = 400;
+        throw error;
+      }
+      responsable = administrador.rows[0].id;
+      await client.query('UPDATE tickets SET asignado_a_id=$1, asignacion_automatica=FALSE WHERE id=$2', [responsable, ticketCreado.id]);
+    } else {
+      responsable = await assignTicket(client, ticketCreado.id, ticketCreado.categoria, departamento_destino_id);
+    }
     await client.query(`UPDATE tickets SET fecha_limite=$1, fecha_limite_respuesta=$2, sla_politica_id=$3 WHERE id=$4`, [fechaLimiteSla, fechaRespuestaSla, sla?.id || null, ticketCreado.id]);
     ticketCreado.asignado_a_id = responsable;
     ticketCreado.fecha_limite = fechaLimiteSla;
@@ -138,7 +162,7 @@ exports.crearTicket = async (req, res) => {
     }
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: 'Error al crear el ticket', error: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 400 ? error.message : 'Error al crear el ticket', error: error.message });
   }
 };
 
@@ -149,6 +173,7 @@ exports.listarHistorial = async (req, res) => {
               to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at_local,
               u.nombre AS creador_nombre, u.email AS creador_email,
               d.nombre AS departamento_destino_nombre,
+              ${historialPublicoSql},
               (SELECT h.accion FROM ticket_historial h
           WHERE h.ticket_id = t.id AND h.accion LIKE 'Resolución: %'
           ORDER BY h.created_at DESC LIMIT 1) AS detalles_resolucion
@@ -168,11 +193,10 @@ exports.listarHistorial = async (req, res) => {
 
 exports.listarHistorialTicket = async (req, res) => {
   try {
-    const ticket = await db.query(`SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id=$1`, [req.params.id]);
+    const ticket = await db.query(`SELECT usuario_creador_id, asignado_a_id, categoria FROM tickets WHERE id=$1`, [req.params.id]);
     if (!ticket.rows.length) return res.status(404).json({ success: false, message: 'Ticket no encontrado.' });
     const t = ticket.rows[0];
-    const esAdmin = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'].includes(req.user.rol);
-    if (!esAdmin && Number(t.usuario_creador_id) !== Number(req.user.id) && Number(t.asignado_a_id) !== Number(req.user.id)) return res.status(403).json({ success: false, message: 'No tiene acceso al historial.' });
+    if (!puedeAccederTicket(req.user, t)) return res.status(403).json({ success: false, message: 'No tiene acceso al historial.' });
     const { rows } = await db.query(`SELECT h.*, u.nombre AS usuario_nombre, u.rol AS usuario_rol FROM ticket_historial h LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE h.ticket_id=$1 ORDER BY h.created_at ASC`, [req.params.id]);
     res.json({ success: true, data: rows });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
@@ -296,12 +320,9 @@ exports.enviarMensaje = async (req, res) => {
   const { mensaje } = req.body;
 
   try {
-    const ticket = await db.query('SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id = $1', [id]);
-    const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+    const ticket = await db.query('SELECT usuario_creador_id, asignado_a_id, categoria FROM tickets WHERE id = $1', [id]);
     if (!ticket.rowCount) return res.status(404).json({ success: false, message: 'Ticket no encontrado.' });
-    const esSolicitante = Number(ticket.rows[0].usuario_creador_id) === Number(req.user.id);
-    const esResponsable = Number(ticket.rows[0].asignado_a_id) === Number(req.user.id);
-    if (!esSolicitante && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !esResponsable)) {
+    if (!puedeAccederTicket(req.user, ticket.rows[0])) {
       return res.status(403).json({ success: false, message: 'No tiene acceso a esta conversación.' });
     }
     const messageText = typeof mensaje === 'string' ? mensaje.trim() : '';

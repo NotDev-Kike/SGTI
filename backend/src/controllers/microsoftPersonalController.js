@@ -44,16 +44,8 @@ exports.loginCallback = async (req, res) => {
     let { rows } = await db.query(`SELECT u.*, d.nombre AS departamento_nombre FROM usuarios u LEFT JOIN departamentos d ON d.id=u.departamento_id WHERE LOWER(u.email) = ANY($1::text[]) AND u.activo=TRUE`, [emails]);
     let user = rows[0];
 
-    // Microsoft es la identidad principal para el acceso SSO. Las cuentas nuevas
-    // entran como usuario final; los administradores existentes conservan su rol.
-    if (!user) {
-      const temporaryPassword = `microsoft$${crypto.randomBytes(32).toString('hex')}`;
-      const created = await db.query(`INSERT INTO usuarios (nombre,email,password,rol,departamento_id,activo)
-        VALUES ($1,$2,$3,'usuario_final',NULL,TRUE)
-        RETURNING id,nombre,email,rol,departamento_id,activo`, [microsoftDisplayName(authResult.profile), email, temporaryPassword]);
-      user = created.rows[0];
-      user.departamento_nombre = null;
-    } else if (authResult.profile.displayName && user.nombre !== authResult.profile.displayName) {
+    if (!user) throw new Error('Este correo aún no tiene acceso autorizado. Solicite al gerente de IT que valide su correo.');
+    if (authResult.profile.displayName && user.nombre !== authResult.profile.displayName) {
       await db.query('UPDATE usuarios SET nombre=$1 WHERE id=$2', [authResult.profile.displayName, user.id]);
       user.nombre = authResult.profile.displayName;
     }

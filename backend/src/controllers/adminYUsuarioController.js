@@ -840,10 +840,26 @@ exports.listarCalendario = async (req, res) => {
 // --- 2. TICKETS Y SEMÁFORO CRÍTICO ---
 exports.listarTicketsAdmin = async (req, res) => {
   try {
-    // Lista tickets activos (no resueltos) ordenados por fecha de creación y semáforo crítico
+    // Lista tickets activos priorizando los nuevos y mostrando primero los más recientes.
     const query = `
       SELECT t.*,
       to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at_local,
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'tipo', CASE
+            WHEN h.accion LIKE 'Resolución: %' THEN 'Resolución'
+            WHEN h.accion LIKE 'Bloqueo externo: %' THEN 'Bloqueo externo'
+            ELSE 'Actualización'
+          END,
+          'mensaje', SUBSTRING(h.accion FROM '^[^:]+: (.*)$'),
+          'usuario_nombre', COALESCE(u_hist.nombre, 'Administrador'),
+          'fecha_hora', to_char(h.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+        ) ORDER BY h.created_at ASC)
+        FROM ticket_historial h
+        LEFT JOIN usuarios u_hist ON u_hist.id = h.usuario_id
+        WHERE h.ticket_id = t.id
+          AND (h.accion LIKE 'Seguimiento: %' OR h.accion LIKE 'Bloqueo externo: %' OR h.accion LIKE 'Resolución: %')
+      ), '[]'::json) AS actualizaciones,
       u.nombre as creador_nombre, d.nombre as departamento_nombre,
       u_asig.nombre AS asignado_nombre,
       CASE
@@ -857,7 +873,9 @@ exports.listarTicketsAdmin = async (req, res) => {
       JOIN departamentos d ON t.departamento_destino_id = d.id
       LEFT JOIN usuarios u_asig ON u_asig.id = t.asignado_a_id
       WHERE t.estado != 'resuelto'
-      ORDER BY t.fecha_limite ASC NULLS LAST, t.created_at ASC;
+      ORDER BY CASE WHEN t.estado = 'nuevo' THEN 0 ELSE 1 END,
+               t.created_at DESC,
+               t.id DESC;
     `;
     const { rows } = await db.query(query);
     res.json({ success: true, data: rows });

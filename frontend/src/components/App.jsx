@@ -139,6 +139,8 @@ export default function App() {
   const [ticketsResueltos, setTicketsResueltos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
+  const [administradoresDepartamento, setAdministradoresDepartamento] = useState([]);
+  const [cargandoAdministradoresDepartamento, setCargandoAdministradoresDepartamento] = useState(false);
   const [categorias, setCategorias] = useState([
     { id: 'hardware', nombre: 'Hardware' }, { id: 'software', nombre: 'Software' },
     { id: 'redes', nombre: 'Redes' }, { id: 'gps', nombre: 'GPS / Rutas' }
@@ -216,6 +218,32 @@ export default function App() {
       });
     return () => { active = false; };
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !formTicket.departamento_destino_id) {
+      setAdministradoresDepartamento([]);
+      setCargandoAdministradoresDepartamento(false);
+      return undefined;
+    }
+    let active = true;
+    setCargandoAdministradoresDepartamento(true);
+    apiFetch(API_BASE_URL, `/api/auth/administradores?departamento_id=${encodeURIComponent(formTicket.departamento_destino_id)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (!active) return;
+        const admins = data.success ? data.data : [];
+        setAdministradoresDepartamento(admins);
+        setFormTicket(actual => ({
+          ...actual,
+          asignado_a_id: admins.some(admin => Number(admin.id) === Number(actual.asignado_a_id))
+            ? actual.asignado_a_id
+            : admins[0]?.id || ''
+        }));
+      })
+      .catch(() => { if (active) setAdministradoresDepartamento([]); })
+      .finally(() => { if (active) setCargandoAdministradoresDepartamento(false); });
+    return () => { active = false; };
+  }, [currentUser, formTicket.departamento_destino_id]);
 
   useEffect(() => {
     if (!currentUser) return undefined;
@@ -484,8 +512,12 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('sgti_user');
+    apiFetch(API_BASE_URL, '/api/auth/logout', { method: 'POST' })
+      .catch(() => {})
+      .finally(() => {
+        setCurrentUser(null);
+        localStorage.removeItem('sgti_user');
+      });
   };
 
   const irAMicrosoft = event => {
@@ -556,7 +588,7 @@ export default function App() {
         cargarDatosGlobales();
         mostrarAviso(`Ticket clasificado como [${formTicket.tipo_solicitud.toUpperCase()}] creado con éxito.`);
         setArchivosTicket([]);
-        setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'Hardware', departamento_destino_id: '', prioridad: 'media' });
+        setFormTicket({ tipo_solicitud: 'incidencia', titulo: '', descripcion: '', categoria: 'Hardware', departamento_destino_id: '', asignado_a_id: '', prioridad: 'media' });
         setActiveTab(currentUser.isAdmin ? 'todos_tickets' : 'mis_tickets');
       })
       .catch(error => mostrarAviso(error.message, 'error'));
@@ -666,7 +698,17 @@ export default function App() {
       }
       grupos.get(key).tickets.push(ticket);
     });
-    return Array.from(grupos.values()).sort((a, b) => b.tickets.length - a.tickets.length || a.nombre.localeCompare(b.nombre, 'es'));
+    return Array.from(grupos.values()).map(grupo => ({
+      ...grupo,
+      tickets: grupo.tickets.slice().sort((a, b) =>
+        Number(b.estado === 'nuevo') - Number(a.estado === 'nuevo')
+        || new Date(b.created_at) - new Date(a.created_at)
+        || Number(b.id) - Number(a.id)
+      )
+    })).sort((a, b) =>
+      new Date(b.tickets[0].created_at) - new Date(a.tickets[0].created_at)
+      || Number(b.tickets[0].id) - Number(a.tickets[0].id)
+    );
   };
   const mensajesPendientes = currentUser?.isAdmin
     ? conversaciones.reduce((total, conversacion) => total + Number(conversacion.pendientes || 0), 0)
@@ -1261,7 +1303,7 @@ export default function App() {
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Área Destino</label>
                     <select 
                       value={formTicket.departamento_destino_id}
-                      onChange={e => setFormTicket({...formTicket, departamento_destino_id: Number(e.target.value) || ''})}
+                      onChange={e => setFormTicket({...formTicket, departamento_destino_id: Number(e.target.value) || '', asignado_a_id: ''})}
                       required
                       className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
                     >
@@ -1269,6 +1311,22 @@ export default function App() {
                       {departamentos.map(departamento => <option key={departamento.id} value={departamento.id}>{departamento.nombre}</option>)}
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Administrador asignado</label>
+                  <select
+                    value={formTicket.asignado_a_id || ''}
+                    onChange={e => setFormTicket({...formTicket, asignado_a_id: Number(e.target.value) || ''})}
+                    disabled={!formTicket.departamento_destino_id || cargandoAdministradoresDepartamento || !administradoresDepartamento.length}
+                    className="w-full px-3 py-2 border rounded-lg text-sm bg-white disabled:bg-slate-100"
+                  >
+                    {!formTicket.departamento_destino_id && <option value="">Primero seleccione un área</option>}
+                    {cargandoAdministradoresDepartamento && <option value="">Cargando administrador del área…</option>}
+                    {!!formTicket.departamento_destino_id && !cargandoAdministradoresDepartamento && !administradoresDepartamento.length && <option value="">No se pudo encontrar un administrador para esta área</option>}
+                    {administradoresDepartamento.map(admin => <option key={admin.id} value={admin.id}>{admin.nombre} · {admin.rol === 'gerente_it' ? 'Gerente de IT' : 'Administrador'}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">Se propone automáticamente el primer administrador disponible; puede cambiarlo si hay más responsables.</p>
                 </div>
 
                 <div>
@@ -1337,19 +1395,23 @@ export default function App() {
                     <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">{grupo.tickets.length} {grupo.tickets.length === 1 ? 'ticket activo' : 'tickets activos'}</span>
                   </summary>
                   <div className="divide-y border-t border-slate-200">
-                    {grupo.tickets.map(ticket => <article key={ticket.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    {grupo.tickets.map(ticket => {
+                      const esNuevo = ticket.estado === 'nuevo';
+                      return <article key={ticket.id} className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${esNuevo ? 'border-l-4 border-l-amber-500 bg-amber-50/80 shadow-[inset_0_0_0_1px_rgb(245_158_11_/_35%)]' : ''}`}>
                       <button onClick={() => abrirDetalleTicket(ticket)} className="min-w-0 text-left">
-                        <span className="block text-xs text-slate-500">#{ticket.id} · {etiquetaTipoTicket(ticket.tipo_solicitud)}</span>
+                        <span className={`block text-xs ${esNuevo ? 'font-bold uppercase tracking-wide text-amber-800' : 'text-slate-500'}`}>#{ticket.id} · {esNuevo ? 'Nuevo · requiere atención' : etiquetaTipoTicket(ticket.tipo_solicitud)}</span>
                         <strong className="block truncate text-sm text-slate-900">{ticket.titulo}</strong>
                         <span className="mt-1 block text-xs text-slate-500">{ticket.departamento_nombre || 'Sin área'} · {ticket.semaforo_alerta === 'vencido' ? 'Vencido' : ticket.fecha_limite ? parseLocalDate(ticket.fecha_limite).toLocaleDateString() : 'Sin fecha límite'}</span>
                       </button>
                       <div className="flex items-center gap-3">
+                        {esNuevo && <span className="rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white shadow-sm">Atender ahora</span>}
                         <select aria-label={`Estado del ticket ${ticket.id}`} value={ticket.estado} onChange={event => moverTicketAdmin(ticket, event.target.value, currentUser.rol === 'gerente_it' ? ticket.departamento_destino_id : null)} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-xs">
                           <option value="nuevo">Nuevo</option><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option>
                         </select>
                         <button onClick={() => abrirDetalleTicket(ticket)} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">Ver detalle</button>
                       </div>
-                    </article>)}
+                    </article>;
+                    })}
                   </div>
                 </details>)}
                 {!filtrarTickets(tickets).length && <p className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">No hay tickets que coincidan con la búsqueda.</p>}
@@ -1958,7 +2020,7 @@ export default function App() {
               {(ticketSeleccionado.actualizaciones?.length > 0 || ticketSeleccionado.actualizacion_publica || ticketSeleccionado.detalles_resolucion) && <section className="space-y-2 border-t pt-4">
                 <h3 className="font-semibold text-slate-900">Historial de atención</h3>
                 {ticketSeleccionado.actualizaciones?.length ? <ol className="space-y-2">{ticketSeleccionado.actualizaciones.map((actualizacion, index) => <li key={`${ticketSeleccionado.id}-${index}`} className="border-l-2 border-blue-300 bg-slate-50 px-3 py-2 text-sm">
-                  <div className="flex flex-wrap justify-between gap-2"><strong>{actualizacion.tipo}</strong><time className="text-xs text-slate-500">{formatLocalDateTime(actualizacion.fecha_hora)}</time></div>
+                  <div className="flex flex-wrap justify-between gap-2"><strong>{actualizacion.tipo} · {actualizacion.usuario_nombre || 'Administrador'}</strong><time className="text-xs font-medium text-slate-500">{formatLocalDateTime(actualizacion.fecha_hora)}</time></div>
                   <p className="mt-1 whitespace-pre-wrap text-slate-700">{actualizacion.mensaje}</p>
                 </li>)}</ol> : <p className="whitespace-pre-wrap text-sm text-slate-700">{ticketSeleccionado.detalles_resolucion || ticketSeleccionado.actualizacion_publica}</p>}
               </section>}
@@ -1976,7 +2038,7 @@ export default function App() {
                 </div>
               </section>}
 
-              {(!currentUser.isAdmin || currentUser.rol === 'gerente_it' || Number(ticketSeleccionado.asignado_a_id) === Number(currentUser.id)) && <section className="space-y-3 border-t pt-4">
+              <section className="space-y-3 border-t pt-4">
                 <div>
                   <h3 className="font-semibold text-slate-900">Mensajes del ticket #{ticketSeleccionado.id}</h3>
                   <p className="text-xs text-slate-500">Las aclaraciones y respuestas quedan vinculadas a este ticket.</p>
@@ -1996,7 +2058,7 @@ export default function App() {
                   </div>
                   <EvidencePicker files={archivosMensajeTicket} onChange={setArchivosMensajeTicket} />
                 </form>
-              </section>}
+              </section>
             </div>
           </section>
         </div>}

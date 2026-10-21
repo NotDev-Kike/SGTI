@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const { signToken } = require('../middleware/auth');
 const { registrarEvento } = require('../services/auditService');
+const { rolesParaDepartamento } = require('../services/ticketAccessService');
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -20,6 +21,30 @@ exports.listarDepartamentos = async (_req, res) => {
     res.json({ success: true, data: rows });
   } catch (error) {
     res.status(500).json({ success: false, message: 'No se pudieron cargar las áreas.' });
+  }
+};
+
+exports.listarAdministradoresPorDepartamento = async (req, res) => {
+  const departamentoId = Number(req.query.departamento_id);
+  if (!Number.isInteger(departamentoId) || departamentoId <= 0) {
+    return res.json({ success: true, data: [] });
+  }
+  try {
+    const departamento = await db.query('SELECT nombre FROM departamentos WHERE id = $1', [departamentoId]);
+    if (!departamento.rowCount) return res.json({ success: true, data: [] });
+    const rolesDepartamento = rolesParaDepartamento(departamento.rows[0].nombre);
+    const { rows } = await db.query(`
+      SELECT id, nombre, email, rol, departamento_id
+      FROM usuarios
+      WHERE activo = TRUE
+        AND rol = ANY($2::text[])
+        AND (departamento_id = $1 OR rol = ANY($3::text[]))
+      ORDER BY CASE WHEN departamento_id = $1 THEN 0 ELSE 1 END,
+               CASE WHEN rol = 'gerente_it' THEN 0 ELSE 1 END, nombre, id
+    `, [departamentoId, ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'], rolesDepartamento]);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'No se pudieron cargar los administradores del área.' });
   }
 };
 

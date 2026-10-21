@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const db = require('../config/db');
-const { registrarEvento, hashToken } = require('../services/auditService');
+const { registrarEvento, sanitizarDetalleSolicitud, hashToken } = require('../services/auditService');
 
 const secret = process.env.AUTH_TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
 const adminRoles = new Set(['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo']);
@@ -48,10 +48,25 @@ async function authenticate(req, res, next) {
     const { rows } = await db.query('SELECT id, email, rol FROM usuarios WHERE id = $1 AND activo = TRUE', [tokenUser.id]);
     if (!rows.length) return res.status(401).json({ success: false, message: 'La cuenta está inactiva.' });
     req.user = rows[0];
-    registrarEvento({ req, usuarioId: req.user.id, evento: 'sesion.actividad', entidad: 'usuario', entidadId: req.user.id });
+    if (req.method !== 'GET' && req.originalUrl !== '/api/auth/logout') {
+      res.once('finish', () => registrarEvento({
+        req,
+        evento: 'movimiento.http',
+        entidad: req.baseUrl || req.path,
+        detalle: {
+          metodo: req.method,
+          ruta: req.originalUrl,
+          estado_http: res.statusCode,
+          datos: sanitizarDetalleSolicitud(req.body)
+        }
+      }));
+    }
     db.query(`UPDATE sesiones_usuario
-      SET token_hash=$2, ultima_actividad=CURRENT_TIMESTAMP, conectado=TRUE, ip=$3, user_agent=$4
-      WHERE usuario_id=$1`, [req.user.id, hashToken(token), req.ip, req.headers['user-agent']])
+      SET ultima_actividad=CURRENT_TIMESTAMP,
+          conectado=TRUE,
+          ip=$3,
+          user_agent=$4
+      WHERE usuario_id=$1 AND token_hash=$2 AND conectado=TRUE`, [req.user.id, hashToken(token), req.ip, req.headers['user-agent']])
       .then(result => result.rowCount ? null : db.query(
         `INSERT INTO sesiones_usuario (usuario_id, token_hash, ip, user_agent) VALUES ($1,$2,$3,$4)`,
         [req.user.id, hashToken(token), req.ip, req.headers['user-agent']]

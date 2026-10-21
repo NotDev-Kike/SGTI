@@ -1,16 +1,14 @@
 const pool = require('../config/db');
 const { guardarImagenesEvidencia } = require('../services/evidenceImageService');
+const { puedeAccederTicket } = require('../services/ticketAccessService');
 
 // Obtener los mensajes de un ticket
 exports.obtenerMensajesTicket = async (req, res) => {
   try {
     const { ticket_id } = req.params;
-    const ticket = await pool.query('SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id = $1', [ticket_id]);
-    const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+    const ticket = await pool.query('SELECT usuario_creador_id, asignado_a_id, categoria FROM tickets WHERE id = $1', [ticket_id]);
     if (!ticket.rowCount) return res.status(404).json({ error: 'Ticket no encontrado.' });
-    const esSolicitante = Number(ticket.rows[0].usuario_creador_id) === Number(req.user.id);
-    const esResponsable = Number(ticket.rows[0].asignado_a_id) === Number(req.user.id);
-    if (!esSolicitante && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !esResponsable)) {
+    if (!puedeAccederTicket(req.user, ticket.rows[0])) {
       return res.status(403).json({ error: 'No tiene acceso a esta conversación.' });
     }
     const query = `
@@ -42,12 +40,9 @@ exports.enviarMensaje = async (req, res) => {
   try {
     const { ticket_id } = req.params;
     const { mensaje } = req.body;
-    const ticket = await pool.query('SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id = $1', [ticket_id]);
-    const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+    const ticket = await pool.query('SELECT usuario_creador_id, asignado_a_id, categoria FROM tickets WHERE id = $1', [ticket_id]);
     if (!ticket.rowCount) return res.status(404).json({ error: 'Ticket no encontrado.' });
-    const esSolicitante = Number(ticket.rows[0].usuario_creador_id) === Number(req.user.id);
-    const esResponsable = Number(ticket.rows[0].asignado_a_id) === Number(req.user.id);
-    if (!esSolicitante && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !esResponsable)) {
+    if (!puedeAccederTicket(req.user, ticket.rows[0])) {
       return res.status(403).json({ error: 'No tiene acceso a esta conversación.' });
     }
     const messageText = typeof mensaje === 'string' ? mensaje.trim() : '';
@@ -86,12 +81,9 @@ exports.leerImagenTicket = async (req, res) => {
   const ticketId = Number(req.params.ticket_id);
   if (!Number.isInteger(ticketId) || ticketId <= 0) return res.status(400).json({ error: 'Ticket inválido.' });
   try {
-    const ticket = await pool.query('SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id = $1', [ticketId]);
+    const ticket = await pool.query('SELECT usuario_creador_id, asignado_a_id, categoria FROM tickets WHERE id = $1', [ticketId]);
     if (!ticket.rowCount) return res.status(404).json({ error: 'Ticket no encontrado.' });
-    const isRequester = Number(ticket.rows[0].usuario_creador_id) === Number(req.user.id);
-    const isAssignee = Number(ticket.rows[0].asignado_a_id) === Number(req.user.id);
-    const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
-    if (!isRequester && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !isAssignee)) {
+    if (!puedeAccederTicket(req.user, ticket.rows[0])) {
       return res.status(403).json({ error: 'No tiene acceso a las imágenes de este ticket.' });
     }
     const { rows } = await pool.query(`

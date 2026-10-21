@@ -1,7 +1,6 @@
 const db = require('../config/db');
 const { sanitizeFileName } = require('../services/evidenceImageService');
-
-const adminRoles = ['gerente_it', 'admin_infra', 'admin_gps', 'admin_desarrollo'];
+const { puedeAccederTicket } = require('../services/ticketAccessService');
 
 const enviarImagen = (res, image) => {
   const filename = sanitizeFileName(image.nombre_archivo);
@@ -19,12 +18,10 @@ exports.listarImagenesTicket = async (req, res) => {
     return res.status(400).json({ success: false, error: 'Ticket inválido.' });
   }
   try {
-    const { rows: tickets } = await db.query('SELECT usuario_creador_id, asignado_a_id FROM tickets WHERE id = $1', [ticketId]);
+    const { rows: tickets } = await db.query('SELECT usuario_creador_id, asignado_a_id, categoria FROM tickets WHERE id = $1', [ticketId]);
     if (!tickets.length) return res.status(404).json({ success: false, error: 'Ticket no encontrado.' });
     const ticket = tickets[0];
-    const isRequester = Number(ticket.usuario_creador_id) === Number(req.user.id);
-    const isAssignee = Number(ticket.asignado_a_id) === Number(req.user.id);
-    if (!isRequester && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !isAssignee)) {
+    if (!puedeAccederTicket(req.user, ticket)) {
       return res.status(403).json({ success: false, error: 'No tiene acceso a las imágenes de este ticket.' });
     }
     const { rows } = await db.query(`
@@ -47,7 +44,7 @@ exports.leerImagen = async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT i.*,
-             t.usuario_creador_id, t.asignado_a_id,
+             t.usuario_creador_id, t.asignado_a_id, t.categoria,
              c.solicitante_id, c.admin_id
       FROM imagenes_evidencia i
       LEFT JOIN tickets t ON t.id = i.ticket_id
@@ -58,9 +55,7 @@ exports.leerImagen = async (req, res) => {
     if (!rows.length) return res.status(404).json({ success: false, error: 'Imagen no encontrada.' });
     const image = rows[0];
     if (image.ticket_id != null) {
-      const isRequester = Number(image.usuario_creador_id) === Number(req.user.id);
-      const isAssignee = Number(image.asignado_a_id) === Number(req.user.id);
-      if (!isRequester && req.user.rol !== 'gerente_it' && (!adminRoles.includes(req.user.rol) || !isAssignee)) {
+      if (!puedeAccederTicket(req.user, image)) {
         return res.status(403).json({ success: false, error: 'No tiene acceso a esta imagen.' });
       }
     } else if (Number(image.solicitante_id) !== Number(req.user.id) && Number(image.admin_id) !== Number(req.user.id)) {
