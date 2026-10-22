@@ -107,6 +107,17 @@ const etiquetaTipoTicket = tipo => ({
   peticion_cambio: 'Petición de cambio', chat: 'Comunicación por chat'
 }[tipo] || tipo || 'Ticket');
 
+const fechaCalendarioClave = date => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+const estadoCalendario = (evento, fecha) => {
+  if (evento.tipo === 'ticket' && evento.estado === 'resuelto') return { label: 'Resuelto', tone: 'emerald' };
+  if (evento.tipo === 'tarea' && ['completada', 'completado', 'resuelta', 'resuelto'].includes(String(evento.estado).toLowerCase())) return { label: 'Completada', tone: 'emerald' };
+  if (evento.tipo === 'tarea' && evento.estado === 'cancelada') return { label: 'Cancelada', tone: 'slate' };
+  if (evento.tipo === 'ticket' && evento.estado === 'vencido') return { label: 'Vencido', tone: 'red' };
+  if (fecha < fechaCalendarioClave(new Date())) return { label: 'Vencido', tone: 'red' };
+  if (evento.tipo === 'ticket' && evento.estado === 'en_proceso') return { label: 'En proceso', tone: 'blue' };
+  return { label: evento.tipo === 'ticket' ? etiquetaEstadoTicket(evento.estado) : 'Pendiente', tone: evento.tipo === 'ticket' ? 'amber' : 'blue' };
+};
+
 export default function App() {
   // Cargar usuario desde localStorage para evitar que se regrese al login al recargar
   const [currentUser, setCurrentUser] = useState(() => {
@@ -166,6 +177,7 @@ export default function App() {
   const [areaAsignacion, setAreaAsignacion] = useState({});
   const [formSeguimientos, setFormSeguimientos] = useState({});
   const [mesCalendario, setMesCalendario] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [fechaCalendarioSeleccionada, setFechaCalendarioSeleccionada] = useState(() => fechaCalendarioClave(new Date()));
   const [dialogo, setDialogo] = useState(null);
 
   const mostrarAviso = (mensaje, tipo = 'success') => setDialogo({ tipo, mensaje });
@@ -757,6 +769,17 @@ export default function App() {
   const abrirBandejaAsistenciaRemota = () => {
     setSeccionSoporte('remota');
     setActiveTab('chat');
+  };
+  const eventosFechaSeleccionada = calendario.filter(evento => evento.fecha === fechaCalendarioSeleccionada);
+  const cambiarMesCalendario = desplazamiento => {
+    const siguiente = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() + desplazamiento, 1);
+    setMesCalendario(siguiente);
+    setFechaCalendarioSeleccionada(fechaCalendarioClave(siguiente));
+  };
+  const irAlMesActual = () => {
+    const hoy = new Date();
+    setMesCalendario(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+    setFechaCalendarioSeleccionada(fechaCalendarioClave(hoy));
   };
 
   useEffect(() => {
@@ -1544,34 +1567,68 @@ export default function App() {
 
           {/* CALENDARIO INTERACTIVO */}
           {activeTab === 'calendario' && (
-            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-900">{currentUser.isAdmin ? 'Calendario IT' : 'Mi calendario'}</h2>
-                <div className="flex items-center gap-3">
-                  <button aria-label="Mes anterior" onClick={() => setMesCalendario(new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() - 1, 1))} className="border rounded px-3 py-1">‹</button>
-                  <strong className="min-w-36 text-center">{mesCalendario.toLocaleDateString('es', { month: 'long', year: 'numeric' })}</strong>
-                  <button aria-label="Mes siguiente" onClick={() => setMesCalendario(new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() + 1, 1))} className="border rounded px-3 py-1">›</button>
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">{currentUser.isAdmin ? 'Calendario IT' : 'Mi calendario'}</h2>
+                  <p className="mt-1 text-sm text-slate-500">Seleccione un día para ver cada ticket y tarea con su estado y detalle.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={irAlMesActual} className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Hoy</button>
+                  <button type="button" aria-label="Mes anterior" onClick={() => cambiarMesCalendario(-1)} className="rounded-md border border-slate-300 px-3 py-2 text-lg leading-none text-slate-700 hover:bg-slate-50">‹</button>
+                  <strong className="min-w-36 text-center capitalize text-sm text-slate-800">{mesCalendario.toLocaleDateString('es', { month: 'long', year: 'numeric' })}</strong>
+                  <button type="button" aria-label="Mes siguiente" onClick={() => cambiarMesCalendario(1)} className="rounded-md border border-slate-300 px-3 py-2 text-lg leading-none text-slate-700 hover:bg-slate-50">›</button>
                 </div>
               </div>
-              <div className="grid grid-cols-7 border-l border-t text-xs">
-                {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(day => <div key={day} className="border-r border-b p-2 text-center font-bold text-slate-500">{day}</div>)}
-                {(() => {
-                  const firstWeekday = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth(), 1).getDay();
-                  const daysInMonth = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() + 1, 0).getDate();
-                  const cells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
-                  return Array.from({ length: cells }, (_, index) => {
-                    const day = index - firstWeekday + 1;
-                    const inMonth = day > 0 && day <= daysInMonth;
-                    const events = inMonth ? calendario.filter(evento => {
-                      const date = parseLocalDate(evento.fecha);
-                      return date.getFullYear() === mesCalendario.getFullYear() && date.getMonth() === mesCalendario.getMonth() && date.getDate() === day;
-                    }) : [];
-                    return <div key={index} className={`min-h-20 border-r border-b p-1.5 ${inMonth ? 'bg-white' : 'bg-slate-50 text-slate-300'}`}>
-                      {inMonth && <><div className="font-semibold">{day}</div><div className="mt-1 space-y-1">{events.slice(0, 2).map(evento => <div key={`${evento.tipo}-${evento.id}`} title={`${evento.tipo}: ${evento.titulo}`} className={`truncate rounded px-1 py-0.5 ${evento.tipo === 'ticket' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>{evento.titulo}</div>)}{events.length > 2 && <div className="text-slate-500">+{events.length - 2} más</div>}</div></>}
-                    </div>;
-                  });
-                })()}
+              <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
+                <span className="rounded-full bg-amber-100 px-2.5 py-1">Tickets</span>
+                <span className="rounded-full bg-blue-100 px-2.5 py-1">Tareas</span>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1">Resuelto / completada</span>
+                <span className="rounded-full bg-red-100 px-2.5 py-1">Vencido</span>
+                <span className="ml-auto font-semibold text-slate-500">{calendario.length} actividades</span>
               </div>
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <div className="min-w-[680px]">
+                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-xs">
+                    {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(day => <div key={day} className="border-r border-slate-200 p-2 text-center font-bold text-slate-500 last:border-r-0">{day}</div>)}
+                  </div>
+                  <div className="grid grid-cols-7">
+                    {(() => {
+                      const firstWeekday = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth(), 1).getDay();
+                      const daysInMonth = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() + 1, 0).getDate();
+                      const cells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+                      return Array.from({ length: cells }, (_, index) => {
+                        const day = index - firstWeekday + 1;
+                        const inMonth = day > 0 && day <= daysInMonth;
+                        const date = inMonth ? new Date(mesCalendario.getFullYear(), mesCalendario.getMonth(), day) : null;
+                        const dateKey = date ? fechaCalendarioClave(date) : '';
+                        const events = inMonth ? calendario.filter(evento => evento.fecha === dateKey) : [];
+                        const selected = dateKey === fechaCalendarioSeleccionada;
+                        return <button key={index} type="button" disabled={!inMonth} onClick={() => setFechaCalendarioSeleccionada(dateKey)} className={`min-h-24 border-b border-r border-slate-200 p-1.5 text-left align-top transition last:border-r-0 ${!inMonth ? 'cursor-default bg-slate-50' : selected ? 'bg-sky-50 ring-2 ring-inset ring-sky-500' : 'bg-white hover:bg-slate-50'}`}>
+                          {inMonth && <><div className={`flex items-center justify-between text-xs font-semibold ${dateKey === fechaCalendarioClave(new Date()) ? 'text-sky-700' : 'text-slate-700'}`}><span>{day}</span>{events.length > 0 && <span className="rounded-full bg-slate-200 px-1.5 text-[10px] text-slate-600">{events.length}</span>}</div><div className="mt-1 space-y-1">{events.slice(0, 3).map(evento => <span key={`${evento.tipo}-${evento.id}`} title={`${evento.tipo}: ${evento.titulo}`} className={`block truncate rounded px-1.5 py-1 text-[10px] font-medium ${estadoCalendario(evento, dateKey).tone === 'emerald' ? 'bg-emerald-100 text-emerald-900' : estadoCalendario(evento, dateKey).tone === 'red' ? 'bg-red-100 text-red-900' : estadoCalendario(evento, dateKey).tone === 'slate' ? 'bg-slate-200 text-slate-700' : evento.tipo === 'ticket' ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-900'}`}>{evento.tipo === 'ticket' ? 'Ticket' : 'Tarea'} · {evento.titulo}</span>)}{events.length > 3 && <span className="block px-1 text-[10px] font-semibold text-slate-500">+{events.length - 3} más · seleccione</span>}</div></>}
+                        </button>;
+                      });
+                    })()}
+                  </div>
+                </div>
+              </div>
+              <section aria-live="polite" className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Detalle del día</p><h3 className="mt-1 text-base font-bold capitalize text-slate-900">{parseLocalDate(fechaCalendarioSeleccionada).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3></div>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">{eventosFechaSeleccionada.length} {eventosFechaSeleccionada.length === 1 ? 'actividad' : 'actividades'}</span>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {!eventosFechaSeleccionada.length && <p className="py-4 text-center text-sm text-slate-500">No hay tickets ni tareas programados para este día.</p>}
+                  {eventosFechaSeleccionada.map(evento => {
+                    const estado = estadoCalendario(evento, fechaCalendarioSeleccionada);
+                    return <article key={`${evento.tipo}-${evento.id}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2"><div><span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{evento.tipo === 'ticket' ? `Ticket #${evento.id}` : `Tarea #${evento.id}`}</span><h4 className="mt-0.5 font-semibold text-slate-900">{evento.titulo}</h4></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${estado.tone === 'emerald' ? 'bg-emerald-100 text-emerald-800' : estado.tone === 'red' ? 'bg-red-100 text-red-800' : estado.tone === 'slate' ? 'bg-slate-200 text-slate-700' : estado.tone === 'amber' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{estado.label}</span></div>
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{evento.tipo === 'ticket' && evento.estado === 'resuelto' ? (evento.detalles_resolucion || 'Ticket resuelto sin detalle registrado.') : (evento.descripcion || 'Sin descripción registrada.')}</p>
+                      <dl className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2"><div><dt className="font-semibold text-slate-500">Fecha límite</dt><dd>{parseLocalDate(evento.fecha).toLocaleDateString('es', { dateStyle: 'long' })}</dd></div>{evento.tipo === 'ticket' && <div><dt className="font-semibold text-slate-500">Prioridad / categoría</dt><dd>{etiquetaPrioridad(evento.prioridad)} · {etiquetaCategoria(evento.categoria)}</dd></div>}<div><dt className="font-semibold text-slate-500">Responsable</dt><dd>{evento.asignado_nombre || 'Sin responsable asignado'}</dd></div>{evento.tipo === 'ticket' && evento.fecha_resolucion && <div><dt className="font-semibold text-slate-500">Resuelto el</dt><dd>{formatLocalDateTime(evento.fecha_resolucion)}</dd></div>}{evento.tipo === 'tarea' && evento.ticket_titulo && <div><dt className="font-semibold text-slate-500">Ticket relacionado</dt><dd>{evento.ticket_titulo}</dd></div>}</dl>
+                    </article>;
+                  })}
+                </div>
+              </section>
             </div>
           )}
 

@@ -104,12 +104,12 @@ body { margin: 0; background: #f4f6f8; }
 .sgti-app main .shadow-lg {
   box-shadow: 0 8px 24px rgb(15 42 67 / 8%) !important;
 }
-.sgti-app header {
+.sgti-app > div > header {
   background: #ffffff !important;
   min-height: 3.75rem !important;
   box-shadow: 0 1px 0 rgb(15 42 67 / 6%);
 }
-.sgti-app header input {
+.sgti-app > div > header input {
   background: #f8fafc;
 }
 /* En claro, las superficies deben sentirse ligeras como una bandeja de trabajo. */

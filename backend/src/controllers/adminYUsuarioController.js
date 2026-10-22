@@ -820,16 +820,35 @@ exports.listarCalendario = async (req, res) => {
   try {
     const esAdmin = rolesAdminPlanificacion.has(req.user.rol);
     const { rows } = await db.query(`
-      SELECT id, titulo, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha, 'ticket' AS tipo, estado
-      FROM tickets
-      WHERE estado <> 'resuelto'${esAdmin ? '' : ' AND usuario_creador_id = $1'}
+      SELECT t.id, t.titulo, t.descripcion, t.estado, t.prioridad, t.categoria,
+             to_char(t.fecha_limite, 'YYYY-MM-DD') AS fecha,
+             to_char(t.fecha_resolucion AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS fecha_resolucion,
+             t.usuario_creador_id, t.asignado_a_id,
+             u.nombre AS usuario_nombre, ua.nombre AS asignado_nombre,
+             (SELECT SUBSTRING(h.accion FROM '^Resolución: (.*)$')
+                FROM ticket_historial h
+               WHERE h.ticket_id = t.id AND h.accion LIKE 'Resolución: %'
+               ORDER BY h.created_at DESC LIMIT 1) AS detalles_resolucion,
+             'ticket' AS tipo,
+             NULL AS ticket_id, NULL AS ticket_titulo
+      FROM tickets t
+      JOIN usuarios u ON u.id = t.usuario_creador_id
+      LEFT JOIN usuarios ua ON ua.id = t.asignado_a_id
+      WHERE t.fecha_limite IS NOT NULL${esAdmin ? '' : ' AND t.usuario_creador_id = $1'}
       UNION ALL
-      SELECT id, titulo, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha, 'tarea' AS tipo, estado
+      SELECT t.id, t.titulo, t.descripcion, t.estado, NULL AS prioridad, NULL AS categoria,
+             to_char(t.fecha_limite, 'YYYY-MM-DD') AS fecha,
+             NULL AS fecha_resolucion,
+             NULL AS usuario_creador_id, t.asignado_a_id,
+             NULL AS usuario_nombre, COALESCE(u.nombre, 'Responsable no disponible') AS asignado_nombre,
+             NULL AS detalles_resolucion,
+             'tarea' AS tipo,
+             t.ticket_id, tk.titulo AS ticket_titulo
       FROM tareas_it t
-      WHERE ${esAdmin ? '' : 't.asignado_a_id = $1 AND ('}t.ticket_id IS NULL OR NOT EXISTS (
-        SELECT 1 FROM tickets tk WHERE tk.id = t.ticket_id AND tk.estado = 'resuelto'
-      )${esAdmin ? '' : ')'}
-      ORDER BY fecha ASC;
+      LEFT JOIN usuarios u ON u.id = t.asignado_a_id
+      LEFT JOIN tickets tk ON tk.id = t.ticket_id
+      WHERE t.fecha_limite IS NOT NULL${esAdmin ? '' : ' AND t.asignado_a_id = $1'}
+      ORDER BY fecha ASC, tipo ASC, id ASC;
     `, esAdmin ? [] : [req.user.id]);
     res.json({ success: true, data: rows });
   } catch (error) {
